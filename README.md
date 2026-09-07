@@ -33,7 +33,7 @@ needed in most places, and nothing leaves your server.
 Node 22.13 or newer. Either:
 
 ```
-npm install github:DJViau/tally
+npm install github:Big-Head-Club/tally
 ```
 
 or copy the `src/` folder into your project. There is nothing to build.

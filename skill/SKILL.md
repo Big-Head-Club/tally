@@ -7,7 +7,7 @@ description: Add self-hosted analytics to a web app or game with one script tag.
 
 tally is a zero-dependency Node module: one script tag on the page, one
 handler on the server, SQLite on a volume, live dashboard at a secret URL.
-Source and full README: https://github.com/DJViau/tally
+Source and full README: https://github.com/Big-Head-Club/tally
 
 Follow these steps in order. Do not ask the user questions that these steps
 answer.
@@ -26,7 +26,7 @@ answer.
 ## 2. Install
 
 ```
-npm install github:DJViau/tally
+npm install github:Big-Head-Club/tally
 ```
 
 If the project would rather vendor it, copy `src/` into the project instead.

@@ -1,0 +1,29 @@
+# Standalone collector on Fly:
+#   fly launch --copy-config --no-deploy
+#   fly volumes create tally_data --size 1
+#   fly deploy && fly logs | grep dashboard
+app = "tally"
+primary_region = "ewr"
+
+[build]
+
+[env]
+  TALLY_DIR = "/data"
+  TZ = "America/New_York"
+  PORT = "8787"
+  # PUBLIC_URL = "https://tally.example.com"
+  # TALLY_SITES = "game-one.fly.dev,game-two.fly.dev"
+
+[mounts]
+  source = "tally_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "off"
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

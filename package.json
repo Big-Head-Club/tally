@@ -1,0 +1,32 @@
+{
+  "name": "tally",
+  "version": "0.1.0",
+  "description": "Self-hosted analytics in one script tag. Zero dependencies, SQLite on a volume, live dashboard.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./fetch": "./src/fetch.js",
+    "./store-pg": "./src/store-pg.js"
+  },
+  "bin": {
+    "tally": "./server.js"
+  },
+  "files": [
+    "src",
+    "server.js",
+    "skill",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "pg": "^8.23.0"
+  }
+}

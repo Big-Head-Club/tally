@@ -28,6 +28,26 @@ No cookies. IP addresses are hashed with a daily salt and never stored, so a
 visitor is one person for one day and a stranger the next. No consent banner
 needed in most places, and nothing leaves your server.
 
+## The line for your prompt
+
+Building with Claude Code or another agent? Put this in the prompt, or in
+your prompt template, and let it do the rest:
+
+```
+Add analytics with tally: read https://raw.githubusercontent.com/Big-Head-Club/tally/main/skill/SKILL.md and follow it.
+```
+
+If the skill is installed (`cp -r skill ~/.claude/skills/tally`), the line
+gets shorter:
+
+```
+Add analytics: follow the tally skill.
+```
+
+Either way the agent installs the module, mounts it, adds the tag, names
+the events that matter, sets up storage for Fly or Railway, and reports
+the dashboard URL.
+
 ## Install
 
 Node 22.13 or newer. Either:

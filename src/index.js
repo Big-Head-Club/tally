@@ -15,6 +15,7 @@ export { openSqlite } from './store.js';
  *   tz            timezone for "days" (default $TZ or UTC)
  *   site          default site name for server-side track() and single-site dashboards
  *   sites         allowlist of site names; default: any site name is accepted
+ *   ignoreSites   site names to drop (default: localhost and friends, so local dev never counts)
  *   prefix        mount routes under this path (default '')
  *   retentionDays delete raw events older than this (default 0 = keep forever)
  *   trustProxy    read client IP from proxy headers (default true; Fly and Railway set them)

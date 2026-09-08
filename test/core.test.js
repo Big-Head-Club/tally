@@ -144,3 +144,14 @@ test('prefix mounts everything under a sub-path', async () => {
   assert.match(t.tally.dashboardUrl('http://h'), /^http:\/\/h\/_t\/admin\/analytics\/tok$/);
   await t.close();
 });
+
+test('drops local-dev sites and counts one event name per site', async () => {
+  const t = await boot();
+  await t.post({ n: 'pageview', s: 'localhost', d: {} });
+  await t.post([{ n: 'start', s: 'a.com' }, { n: 'start', s: 'a.com' }, { n: 'start', s: 'b.com' }]);
+  const sites = await (await fetch(`${t.base}/admin/analytics/tok/sites.json`)).json();
+  assert.deepEqual(sites.map((s) => s.site).sort(), ['a.com', 'b.com']);
+  const starts = await t.tally.countByName('start', 7);
+  assert.deepEqual(starts.sort((x, y) => x.site.localeCompare(y.site)), [{ site: 'a.com', c: 2, u: 1 }, { site: 'b.com', c: 1, u: 1 }]);
+  await t.close();
+});

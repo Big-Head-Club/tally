@@ -34,6 +34,9 @@ export async function openPg(url) {
     async sites(sinceMs) {
       return num(await q('select site, count(*) events, count(distinct vid) visitors, max(ts) last from tally_events where ts >= $1 group by site order by visitors desc, events desc', [sinceMs]));
     },
+    async countByName(name, sinceMs) {
+      return num(await q('select site, count(*) c, count(distinct vid) u from tally_events where name=$1 and ts>=$2 group by site', [name, sinceMs]));
+    },
     async stats(s, { sinceMs, todayDay, nowMs }) {
       const one = (rows) => num(rows)[0];
       return {

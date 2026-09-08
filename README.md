@@ -165,6 +165,7 @@ createTally({
   tz: 'UTC',              // timezone for "day"                 ($TZ)
   site: undefined,        // default site for track() and single-site dashboards
   sites: undefined,       // allowlist; default accepts any site name
+  ignoreSites: ['localhost', '127.0.0.1', '0.0.0.0', '::1'], // dropped, so local dev never counts
   prefix: '',             // mount routes under a path, e.g. '/_t'
   retentionDays: 0,       // delete raw events older than this; 0 keeps forever
   trustProxy: true,       // read the client IP from Fly/Railway/Cloudflare headers

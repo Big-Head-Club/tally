@@ -20,6 +20,7 @@ export function createCore(opts) {
   const emitter = new EventEmitter();
   emitter.setMaxListeners(0);
   const allow = opts.sites ? new Set(opts.sites.map((s) => s.toLowerCase())) : null;
+  const ignore = new Set((opts.ignoreSites ?? ['localhost', '127.0.0.1', '0.0.0.0', '::1']).map((s) => s.toLowerCase()));
   const trustProxy = opts.trustProxy !== false;
 
   let secret, token;
@@ -74,6 +75,7 @@ export function createCore(opts) {
     const site = str(raw.s, 64).toLowerCase();
     if (!NAME_RE.test(name) || !SITE_RE.test(site)) return null;
     if (allow && !allow.has(site)) return null;
+    if (ignore.has(site)) return null;
     const day = dayIn(tz, ts);
     return {
       ts, day, site, name,
@@ -121,6 +123,12 @@ export function createCore(opts) {
   async function sites(days = 30) {
     await ready;
     return store.sites(Date.now() - days * 86_400_000);
+  }
+
+  /** Per-site totals of one event name since `days` ago: [{site, c, u}]. */
+  async function countByName(name, days = 30) {
+    await ready;
+    return store.countByName(name, Date.now() - days * 86_400_000);
   }
 
   // ---- HTTP -----------------------------------------------------------------
@@ -211,7 +219,7 @@ export function createCore(opts) {
     await store.close();
   }
 
-  return { handle, track, stats, sites, visitorIdFor, events: emitter, ready, dashboardUrl, get token() { return token; }, tz, prefix, close };
+  return { handle, track, stats, sites, countByName, visitorIdFor, events: emitter, ready, dashboardUrl, get token() { return token; }, tz, prefix, close };
 }
 
 function csvCell(v) {

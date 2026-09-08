@@ -3,6 +3,7 @@
 // might be opened in.
 export const CLIENT_JS = `(function () {
   if (typeof window === 'undefined' || !document.currentScript) return;
+  if (navigator.webdriver) return;   // headless Chrome, Playwright, Puppeteer: not a person
   var sc = document.currentScript, src = sc.src;
   if (!src) return;
   var ep = src.replace(/t\\.js(\\?.*)?$/, 'i'), eps = [ep];

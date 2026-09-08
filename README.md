@@ -230,6 +230,12 @@ TALLY_TEST_PG=postgres://... npm test                # also Postgres
 
 ## FAQ
 
+**Bots?** Link-preview bots never run the script. Headless browsers that do
+are skipped when they admit to being automated, and events from user agents
+that call themselves bots, crawlers, or tools are dropped on the server. For
+rankings, count engaged visitors (`engagedSites()`: clicked, started, or
+stayed ten seconds) rather than pageviews; crawlers never do those.
+
 **Ad blockers?** The script is served from your own domain under a bland
 path, so the common lists do not block it. Some visitors still will not be
 counted. That is true of every tool.

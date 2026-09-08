@@ -156,3 +156,19 @@ test('drops local-dev sites and counts one event name per site', async () => {
   assert.deepEqual(starts.sort((x, y) => x.site.localeCompare(y.site)), [{ site: 'a.com', c: 2, u: 1 }, { site: 'b.com', c: 1, u: 1 }]);
   await t.close();
 });
+
+test('drops self-declared bots; counts engaged visitors', async () => {
+  const t = await boot();
+  const ev = (site, n, d = {}) => ({ n, s: site, d });
+  await t.post([ev('g.com', 'pageview')], { 'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)', 'x-forwarded-for': '1.1.1.1' });
+  await t.post([ev('g.com', 'pageview')], { 'user-agent': 'python-requests/2.31', 'x-forwarded-for': '1.1.1.2' });
+  await t.post([ev('g.com', 'pageview')], { 'user-agent': '', 'x-forwarded-for': '1.1.1.3' });
+  await t.post([ev('g.com', 'pageview'), ev('g.com', 'leave', { s: 3 })], { 'user-agent': 'Mozilla/5.0 Safari', 'x-forwarded-for': '2.2.2.1' });          // bounced
+  await t.post([ev('g.com', 'pageview'), ev('g.com', 'click', { t: 'Play' })], { 'user-agent': 'Mozilla/5.0 Safari', 'x-forwarded-for': '2.2.2.2' });     // engaged
+  await t.post([ev('g.com', 'pageview'), ev('g.com', 'leave', { s: 40 })], { 'user-agent': 'Mozilla/5.0 Safari', 'x-forwarded-for': '2.2.2.3' });         // engaged
+  const s = await t.stats('g.com');
+  assert.equal(s.today.uniques, 3);                       // the three people, none of the bots
+  const eng = JSON.parse(JSON.stringify(await t.tally.engagedSites(7)));
+  assert.deepEqual(eng, [{ site: 'g.com', engaged: 2 }]);
+  await t.close();
+});

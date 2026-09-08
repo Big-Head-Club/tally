@@ -16,6 +16,7 @@ export { openSqlite } from './store.js';
  *   site          default site name for server-side track() and single-site dashboards
  *   sites         allowlist of site names; default: any site name is accepted
  *   ignoreSites   site names to drop (default: localhost and friends, so local dev never counts)
+ *   bots          'drop' (default) ignores self-declared bots and tools by user agent; 'count' keeps them
  *   prefix        mount routes under this path (default '')
  *   retentionDays delete raw events older than this (default 0 = keep forever)
  *   trustProxy    read client IP from proxy headers (default true; Fly and Railway set them)

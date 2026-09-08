@@ -57,6 +57,12 @@ export function openSqlite(file) {
                 from events where ts >= ? group by site order by visitors desc, events desc`).all(sinceMs);
     },
 
+    async engagedSites(sinceMs) {
+      return q(`select site, count(distinct vid) engaged from events
+                where ts>=? and (name in ('click','start') or (name='leave' and json_extract(props,'$.s') >= 10))
+                group by site`).all(sinceMs);
+    },
+
     async countByName(name, sinceMs) {
       return q(`select site, count(*) c, count(distinct vid) u from events where name=? and ts>=? group by site`).all(name, sinceMs);
     },

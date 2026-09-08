@@ -51,3 +51,11 @@ test('an older single-endpoint tally that loaded first still receives tally() ca
   assert.deepEqual(got, ['win']);
   assert.equal(sent[0].url, 'https://hub.test/i');
 });
+
+test('an automated browser sends nothing', () => {
+  const { win, sent } = fakeWindow('https://hub.test/t.js');
+  win.navigator.webdriver = true;
+  run(win);
+  assert.equal(win.window.tally, undefined);
+  assert.equal(sent.length, 0);
+});

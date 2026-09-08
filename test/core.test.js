@@ -152,7 +152,7 @@ test('drops local-dev sites and counts one event name per site', async () => {
   await t.post([{ n: 'start', s: 'a.com' }, { n: 'start', s: 'a.com' }, { n: 'start', s: 'b.com' }]);
   const sites = await (await fetch(`${t.base}/admin/analytics/tok/sites.json`)).json();
   assert.deepEqual(sites.map((s) => s.site).sort(), ['a.com', 'b.com']);
-  const starts = await t.tally.countByName('start', 7);
+  const starts = JSON.parse(JSON.stringify(await t.tally.countByName('start', 7)));   // sqlite rows have a null prototype
   assert.deepEqual(starts.sort((x, y) => x.site.localeCompare(y.site)), [{ site: 'a.com', c: 2, u: 1 }, { site: 'b.com', c: 1, u: 1 }]);
   await t.close();
 });

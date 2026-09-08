@@ -5,7 +5,7 @@ export const CLIENT_JS = `(function () {
   if (typeof window === 'undefined' || !document.currentScript) return;
   var sc = document.currentScript, src = sc.src;
   if (!src) return;
-  var ep = src.replace(/t\\.js(\\?.*)?$/, 'i');
+  var ep = src.replace(/t\\.js(\\?.*)?$/, 'i'), eps = [ep];
   var site = (sc.getAttribute('data-site') || location.hostname).toLowerCase();
   var ignore = false, ab = {}, q = [], timer = null, seen = {};
   var qs = location.search;
@@ -19,8 +19,11 @@ export const CLIENT_JS = `(function () {
   function send() {
     if (!q.length) return;
     var body = JSON.stringify(q); q = [];
-    try { if (navigator.sendBeacon && navigator.sendBeacon(ep, new Blob([body], { type: 'text/plain' }))) return; } catch (e) {}
-    try { fetch(ep, { method: 'POST', body: body, keepalive: true, headers: { 'content-type': 'text/plain' } }).catch(function () {}); } catch (e) {}
+    for (var i = 0; i < eps.length; i++) post(eps[i], body);
+  }
+  function post(to, body) {
+    try { if (navigator.sendBeacon && navigator.sendBeacon(to, new Blob([body], { type: 'text/plain' }))) return; } catch (e) {}
+    try { fetch(to, { method: 'POST', body: body, keepalive: true, headers: { 'content-type': 'text/plain' } }).catch(function () {}); } catch (e) {}
   }
   function t(name, props) {
     if (ignore || !name) return;
@@ -100,9 +103,21 @@ export const CLIENT_JS = `(function () {
   t.site = site;
   t.ignored = function () { return ignore; };
 
+  // Two tags on one page, one tracker. A second copy of this script adds its
+  // endpoint to the first instead of replacing it. An older single-endpoint copy
+  // that loaded first still gets the page's own tally() calls, forwarded.
   var prev = window.tally;
-  window.tally = t;
+  if (prev && prev.__tally && prev.__add) { prev.__add(ep); return; }
+  var prevFn = typeof prev === 'function' && !prev.q ? prev : null;
+  var pub = function (name, props) {
+    t(name, props);
+    if (prevFn) { try { prevFn(name, props); } catch (e) {} }
+  };
+  for (var k in t) pub[k] = t[k];
+  pub.__tally = 1;
+  pub.__add = function (e2) { if (eps.indexOf(e2) < 0) eps.push(e2); };
+  window.tally = pub;
   pageview();
-  if (prev && prev.q) for (var i = 0; i < prev.q.length; i++) t.apply(null, prev.q[i]);
+  if (prev && prev.q) for (var i = 0; i < prev.q.length; i++) pub.apply(null, prev.q[i]);
 })();
 `;

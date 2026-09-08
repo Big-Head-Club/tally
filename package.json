@@ -1,6 +1,6 @@
 {
   "name": "tally",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Self-hosted analytics in one script tag. Zero dependencies, SQLite on a volume, live dashboard.",
   "type": "module",
   "main": "./src/index.js",

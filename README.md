@@ -197,6 +197,9 @@ Everything is optional.
 
 Single-page apps: a `pushState` that changes the path counts as a pageview.
 
+Two tags on one page (your own tally and a shared hub, say) act as one
+tracker that reports to both. Put the hub's tag after your own.
+
 Limits: event names are 64 characters of `a-z 0-9 _ : . -`. Strings in props
 are cut at 200 characters, props at 1 KB, a batch at 50 events, a request at
 32 KB. Bad events are dropped silently.

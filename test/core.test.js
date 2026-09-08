@@ -20,7 +20,7 @@ test('serves the script and the dashboard behind the token', async () => {
   const t = await boot();
   const js = await fetch(`${t.base}/t.js`);
   assert.equal(js.status, 200);
-  assert.match(await js.text(), /window\.tally = t/);
+  assert.match(await js.text(), /window\.tally = pub/);
   assert.equal((await fetch(`${t.base}/admin/analytics/tok`)).status, 200);
   assert.equal((await fetch(`${t.base}/admin/analytics/wrong`)).status, 404);
   assert.equal((await fetch(`${t.base}/admin/analytics/to`)).status, 404);

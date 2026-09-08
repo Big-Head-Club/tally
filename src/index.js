@@ -78,7 +78,9 @@ export function createTally(opts = {}) {
     handler(req, res).then((done) => { if (!done) next(); }).catch(next);
   }
 
-  return { ...core, handler, middleware, visitor };
+  const api = { ...core, handler, middleware, visitor };
+  Object.defineProperty(api, 'token', { get: () => core.token, enumerable: true });   // spread loses the getter
+  return api;
 }
 
 function resolveStore(opts) {

@@ -142,6 +142,7 @@ test('prefix mounts everything under a sub-path', async () => {
   assert.equal((await fetch(`${t.base}/_t/t.js`)).status, 200);
   assert.equal((await fetch(`${t.base}/_t/admin/analytics/tok`)).status, 200);
   assert.match(t.tally.dashboardUrl('http://h'), /^http:\/\/h\/_t\/admin\/analytics\/tok$/);
+  assert.equal(t.tally.token, 'tok');
   await t.close();
 });
 

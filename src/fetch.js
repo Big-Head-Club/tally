@@ -25,7 +25,9 @@ export function createTallyFetch(opts = {}) {
     return new Response(empty ? null : r.body, { status: r.status, headers: r.headers });
   }
 
-  return { ...tally, fetch: fetchHandler };
+  const api = { ...tally, fetch: fetchHandler };
+  Object.defineProperty(api, 'token', { get: () => tally.token, enumerable: true });
+  return api;
 }
 
 function sseResponse(tally, site) {

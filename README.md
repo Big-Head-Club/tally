@@ -28,6 +28,11 @@ No cookies. IP addresses are hashed with a daily salt and never stored, so a
 visitor is one person for one day and a stranger the next. No consent banner
 needed in most places, and nothing leaves your server.
 
+Did they come back? The browser keeps two dates for your site in localStorage
+(first visit, last visit) and no ID. Once a day it sends a `visit` event with
+`days_since_first` and `new`, so day-1 and day-7 return rates work with no
+game code. Blocked storage means no `visit`, nothing else changes.
+
 ## The line for your prompt
 
 Building with Claude Code or another agent? Put this in the prompt, or in
@@ -249,7 +254,8 @@ to Postgres. Or keep the app stateless and run tally standalone.
 **Will it slow the page?** The script is about 5 KB, loads deferred, and sends
 with `sendBeacon`. If the server is down the page does not care.
 
-**GDPR?** No cookies, no stored IPs, no cross-site or cross-day identity. Read
+**GDPR?** No cookies, no stored IPs, no ID. The only thing kept in the
+browser for returns is two dates (first and last visit to this site). Read
 your own rules; this is what Plausible and Fathom argue puts them outside
 consent requirements.
 

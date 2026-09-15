@@ -51,6 +51,24 @@ export const CLIENT_JS = `(function () {
     clearTimeout(timer); timer = setTimeout(send, 800);
   }
 
+  // Did they come back? The visitor hash is salted per day, so the server cannot
+  // tell. The browser keeps two dates for this site (first visit, last visit) and
+  // nothing else: no id. Once per local calendar day it says how many days since
+  // the first. No storage, no visit event.
+  function ymd(x) { return x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2) + '-' + ('0' + x.getDate()).slice(-2); }
+  function visit() {
+    if (ignore) return;
+    var key = 'tally_days:' + site, today = ymd(new Date()), rec;
+    try { rec = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return; }
+    var isNew = !rec || !/^\\d{4}-\\d{2}-\\d{2}$/.test(rec.f);
+    if (isNew) rec = { f: today };
+    if (rec.l === today) return;
+    rec.l = today;
+    try { localStorage.setItem(key, JSON.stringify(rec)); } catch (e) { return; }
+    var p = function (s) { var a = s.split('-'); return Date.UTC(+a[0], a[1] - 1, +a[2]); };
+    t('visit', { days_since_first: Math.max(0, Math.round((p(today) - p(rec.f)) / 864e5)), new: isNew });
+  }
+
   // Clicks on buttons and links, named by data-a, text, aria-label or id.
   document.addEventListener('click', function (ev) {
     var el = ev.target && ev.target.closest && ev.target.closest('button,a,[data-a],[role=button],input[type=submit],summary');
@@ -119,6 +137,7 @@ export const CLIENT_JS = `(function () {
   pub.__add = function (e2) { if (eps.indexOf(e2) < 0) eps.push(e2); };
   window.tally = pub;
   pageview();
+  visit();
   if (prev && prev.q) for (var i = 0; i < prev.q.length; i++) pub.apply(null, prev.q[i]);
 })();
 `;

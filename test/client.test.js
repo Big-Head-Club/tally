@@ -22,10 +22,40 @@ function fakeWindow(src) {
   return { win, sent };
 }
 
-function run(win) {
-  const fn = new Function('window', 'document', 'location', 'navigator', 'matchMedia', 'localStorage', 'history', 'addEventListener', 'setTimeout', 'clearTimeout', 'Blob', 'fetch', 'innerWidth', 'innerHeight', 'URL', CLIENT_JS);
-  fn(win, win.document, win.location, win.navigator, win.matchMedia, win.localStorage, win.history, win.addEventListener, win.setTimeout, win.clearTimeout, win.Blob, win.fetch, win.innerWidth, win.innerHeight, URL);
+function run(win, DateImpl = Date) {
+  const fn = new Function('window', 'document', 'location', 'navigator', 'matchMedia', 'localStorage', 'history', 'addEventListener', 'setTimeout', 'clearTimeout', 'Blob', 'fetch', 'innerWidth', 'innerHeight', 'URL', 'Date', CLIENT_JS);
+  fn(win, win.document, win.location, win.navigator, win.matchMedia, win.localStorage, win.history, win.addEventListener, win.setTimeout, win.clearTimeout, win.Blob, win.fetch, win.innerWidth, win.innerHeight, URL, DateImpl);
 }
+
+// A Date whose "now" is a fixed local calendar day.
+const dayClock = (y, m, d) => class extends Date { constructor(...a) { super(...(a.length ? a : [y, m - 1, d, 12])); } };
+const memoryStorage = (store) => ({ getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } });
+const visits = (sent) => sent.flatMap((s) => JSON.parse(s.blob.text)).filter((e) => e.n === 'visit').map((e) => e.d);
+
+test('a first load sends visit new; the same day sends nothing more; later days count from the first', () => {
+  const store = {};
+  const load = (clock) => {
+    const { win, sent } = fakeWindow('https://hub.test/t.js');
+    win.localStorage = memoryStorage(store);
+    run(win, clock);
+    win.window.tally.flush();
+    return visits(sent);
+  };
+  assert.deepEqual(load(dayClock(2026, 9, 1)), [{ days_since_first: 0, new: true }]);
+  assert.deepEqual(load(dayClock(2026, 9, 1)), []);
+  assert.deepEqual(load(dayClock(2026, 9, 2)), [{ days_since_first: 1, new: false }]);
+  assert.deepEqual(load(dayClock(2026, 9, 8)), [{ days_since_first: 7, new: false }]);
+  assert.deepEqual(Object.keys(store), ['tally_days:game.test']);
+  assert.deepEqual(JSON.parse(store['tally_days:game.test']), { f: '2026-09-01', l: '2026-09-08' });
+});
+
+test('no storage, no visit event', () => {
+  const { win, sent } = fakeWindow('https://hub.test/t.js');
+  win.localStorage = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() {} };
+  run(win);
+  win.window.tally.flush();
+  assert.deepEqual(visits(sent), []);
+});
 
 test('a second tag adds its endpoint; events go to both', async () => {
   const { win, sent } = fakeWindow('https://a.test/t.js');
@@ -37,7 +67,7 @@ test('a second tag adds its endpoint; events go to both', async () => {
   const urls = sent.map((s) => s.url).sort();
   assert.deepEqual(urls, ['https://a.test/i', 'https://hub.test/i']);
   const body = JSON.parse(sent[0].blob.text);
-  assert.deepEqual(body.map((e) => e.n), ['pageview', 'start']);
+  assert.deepEqual(body.map((e) => e.n), ['pageview', 'visit', 'start']);
   assert.equal(body[0].s, 'game.test');
 });
 

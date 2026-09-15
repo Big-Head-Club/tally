@@ -99,6 +99,15 @@ export function openSqlite(file) {
       for (const row of site ? stmt.iterate(site) : stmt.iterate()) yield row;
     },
 
+    /** Rows since a time, optionally one site and some event names, oldest first. */
+    async range(site, { sinceMs, names = [], limit }) {
+      const where = ['ts >= ?'];
+      const args = [sinceMs];
+      if (site) { where.push('site = ?'); args.push(site); }
+      if (names.length) { where.push(`name in (${names.map(() => '?').join(',')})`); args.push(...names); }
+      return q(`select ts, day, site, name, vid, path, ref, props from events where ${where.join(' and ')} order by id limit ?`).all(...args, limit);
+    },
+
     async prune(beforeMs) {
       return q('delete from events where ts < ?').run(beforeMs).changes;
     },

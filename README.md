@@ -112,6 +112,9 @@ URL can read stats, so treat it like a password. To pick your own, set
 The page shows visitors on the site now, today, and all time; a daily table
 with one column per event; referrers, pages, clicks, errors; A/B tables per
 variant key; and a live ticker. `csv` and `jsonl` export the raw rows.
+`events.json?site=&days=7&names=start,return&limit=` returns a window of rows as
+JSON (props parsed, `truncated` when the limit hit), for tools that work out
+what the dashboard does not.
 
 ## Where the data goes
 

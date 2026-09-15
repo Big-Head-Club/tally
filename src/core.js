@@ -12,6 +12,7 @@ const MAX_BODY = 32 * 1024;
 const MAX_BATCH = 50;
 const MAX_PROPS = 1024;
 const MAX_STR = 200;
+const MAX_EVENTS = 50_000;
 // Self-declared bots and tools. Anything that runs the script but says so.
 const BOT_RE = /bot|crawl|spider|slurp|headless|lighthouse|pagespeed|preview|facebookexternalhit|embedly|pinterest|python-requests|python-urllib|curl\/|wget\/|axios|node-fetch|go-http-client|java\/|okhttp|phantomjs|puppeteer|playwright|selenium|scrapy|httpclient|libwww/i;
 
@@ -207,6 +208,18 @@ export function createCore(opts) {
         lines.push(csv ? [r.ts, r.day, r.site, r.name, r.vid, r.path ?? '', r.ref ?? '', r.props ?? ''].map(csvCell).join(',') : JSON.stringify(r));
       }
       return { status: 200, headers: { 'content-type': csv ? 'text/csv' : 'application/x-ndjson', 'content-disposition': `attachment; filename="tally-${site || 'all'}.${csv ? 'csv' : 'jsonl'}"` }, body: lines.join('\n') + '\n' };
+    }
+    // A window of raw rows for tools that work out what the dashboard does not
+    // (return rates, where players came from). ?since=ms or ?days=, ?names=a,b, ?limit=
+    if (sub === 'events.json') {
+      const sinceMs = Number(req.query.get('since')) || Date.now() - days * 86_400_000;
+      const names = (req.query.get('names') || '').split(',').map((n) => n.trim()).filter((n) => NAME_RE.test(n));
+      const limit = Math.min(MAX_EVENTS, Math.max(1, Number(req.query.get('limit')) || MAX_EVENTS));
+      const rows = await store.range(site || null, { sinceMs, names, limit });
+      return json(200, {
+        site: site || null, sinceMs, names, truncated: rows.length === limit,
+        events: rows.map((r) => ({ ...r, ts: Number(r.ts), props: typeof r.props === 'string' ? JSON.parse(r.props) : (r.props ?? null) })),
+      });
     }
     return null;
   }

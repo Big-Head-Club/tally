@@ -172,3 +172,28 @@ test('drops self-declared bots; counts engaged visitors', async () => {
   assert.deepEqual(eng, [{ site: 'g.com', engaged: 2 }]);
   await t.close();
 });
+
+test('events.json returns a window of raw rows, filtered by name, behind the token', async () => {
+  const t = await boot();
+  await t.post([
+    { n: 'start', s: 'demo', d: { via: 'share' } },
+    { n: 'return', s: 'demo', d: { days_since_first: 1 } },
+    { n: 'pageview', s: 'demo', p: '/' },
+    { n: 'start', s: 'other' },
+  ], { 'user-agent': 'A', 'x-forwarded-for': '1.1.1.1' });
+  const get = async (qs) => (await fetch(`${t.base}/admin/analytics/tok/events.json?${qs}`)).json();
+  assert.equal((await fetch(`${t.base}/admin/analytics/wrong/events.json`)).status, 404);
+  assert.equal((await get('site=demo&days=7')).events.length, 3);
+  assert.equal((await get('')).events.length, 4); // no site = every site
+  const some = await get('site=demo&names=start,return,bad%20name!');
+  assert.deepEqual(some.names, ['start', 'return']);
+  assert.deepEqual(some.events.map((e) => e.name), ['start', 'return']);
+  assert.deepEqual(some.events[1].props, { days_since_first: 1 });
+  assert.equal(typeof some.events[0].ts, 'number');
+  assert.equal(some.truncated, false);
+  const capped = await get('site=demo&limit=1');
+  assert.equal(capped.events.length, 1);
+  assert.equal(capped.truncated, true);
+  assert.equal((await get(`site=demo&since=${Date.now() + 60_000}`)).events.length, 0);
+  await t.close();
+});

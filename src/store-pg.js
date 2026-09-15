@@ -72,6 +72,15 @@ export async function openPg(url) {
         for (const r of rows) { last = r.id; const { id, ...rest } = r; yield rest; }
       }
     },
+    async range(site, { sinceMs, names = [], limit }) {
+      const args = [sinceMs];
+      const where = ['ts >= $1'];
+      if (site) { args.push(site); where.push(`site = $${args.length}`); }
+      if (names.length) { args.push(names); where.push(`name = any($${args.length})`); }
+      args.push(limit);
+      const rows = await q(`select ts, day, site, name, vid, path, ref, props from tally_events where ${where.join(' and ')} order by id limit $${args.length}`, args);
+      return rows.map((r) => ({ ...r, ts: Number(r.ts) }));
+    },
     async prune(beforeMs) { return (await pool.query('delete from tally_events where ts < $1', [beforeMs])).rowCount; },
     async close() { await pool.end(); },
   };

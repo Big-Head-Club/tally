@@ -285,6 +285,7 @@ function shapeStats(site, raw, { days, tz, nowMs, todayDay }) {
     live: { visitors5m: raw.live5m, events1h: raw.live1h },
     today: { pageviews: raw.today?.c ?? 0, uniques: raw.today?.u ?? 0 },
     allTimeVisitors: raw.allTimeVisitors,
+    range: { visitors: raw.rangeVisitors ?? 0, pageviews: raw.rangePageviews ?? 0 },
     totals, names, daily,
     refs: raw.refs, paths: raw.paths, clicks: raw.clicks, errors: raw.errors,
     devices: Object.fromEntries(raw.devices.map((d) => [d.d, d.u])),

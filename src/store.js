@@ -72,7 +72,9 @@ export function openSqlite(file) {
       return {
         daily: q(`select day, name, count(*) c from events where site=? and ts>=? group by day, name`).all(s, sinceMs),
         dailyUniques: q(`select day, count(distinct vid) u from events where site=? and ts>=? group by day`).all(s, sinceMs),
-        totals: q(`select name, count(*) c from events where site=? group by name`).all(s),
+        totals: q(`select name, count(*) c from events where site=? and ts>=? group by name`).all(s, sinceMs),
+        rangeVisitors: q(`select count(distinct vid) u from events where site=? and ts>=?`).get(s, sinceMs)?.u ?? 0,
+        rangePageviews: q(`select count(*) c from events where site=? and name='pageview' and ts>=?`).get(s, sinceMs)?.c ?? 0,
         allTimeVisitors: q(`select count(distinct vid) u from events where site=?`).get(s)?.u ?? 0,
         firstSeen: q(`select min(ts) t from events where site=?`).get(s)?.t ?? null,
         live5m: q(`select count(distinct vid) u from events where site=? and ts>=?`).get(s, nowMs - 5 * 60_000)?.u ?? 0,

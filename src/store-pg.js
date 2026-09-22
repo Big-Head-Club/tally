@@ -46,7 +46,9 @@ export async function openPg(url) {
       return {
         daily: num(await q('select day, name, count(*) c from tally_events where site=$1 and ts>=$2 group by day, name', [s, sinceMs])),
         dailyUniques: num(await q('select day, count(distinct vid) u from tally_events where site=$1 and ts>=$2 group by day', [s, sinceMs])),
-        totals: num(await q('select name, count(*) c from tally_events where site=$1 group by name', [s])),
+        totals: num(await q('select name, count(*) c from tally_events where site=$1 and ts>=$2 group by name', [s, sinceMs])),
+        rangeVisitors: one(await q('select count(distinct vid) u from tally_events where site=$1 and ts>=$2', [s, sinceMs]))?.u ?? 0,
+        rangePageviews: one(await q(`select count(*) c from tally_events where site=$1 and name='pageview' and ts>=$2`, [s, sinceMs]))?.c ?? 0,
         allTimeVisitors: one(await q('select count(distinct vid) u from tally_events where site=$1', [s]))?.u ?? 0,
         firstSeen: one(await q('select min(ts) t from tally_events where site=$1', [s]))?.t ?? null,
         live5m: one(await q('select count(distinct vid) u from tally_events where site=$1 and ts>=$2', [s, nowMs - 300_000]))?.u ?? 0,

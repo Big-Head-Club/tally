@@ -34,18 +34,17 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return
 function n(v){return v==null?'—':Number(v).toLocaleString()}
 function fmtT(ms){var d=new Date(ms);return d.toLocaleTimeString([],{hour12:false})}
 function secs(s){if(s==null)return '—';s=Math.round(s);return s<60?s+'s':Math.floor(s/60)+'m '+(s%60)+'s'}
-async function loadSites(){sites=await (await fetch(BASE+'/sites.json?days='+$('#days').value)).json();var sel=$('#site');sel.innerHTML=sites.map(function(s){return '<option value="'+esc(s.site)+'">'+esc(s.site)+' ('+n(s.visitors)+')</option>'}).join('');if(!site&&sites[0])site=sites[0].site;sel.value=site;$('#sitewrap').style.display=sites.length>1?'':'none'}
-async function load(){var days=$('#days').value;S=await (await fetch(BASE+'/stats.json?site='+encodeURIComponent(site)+'&days='+days)).json();$('#csv').href=BASE+'/export.csv?site='+encodeURIComponent(site);$('#jsonl').href=BASE+'/export.jsonl?site='+encodeURIComponent(site);render();connect()}
+async function loadSites(){sites=await (await fetch(BASE+'/sites.json?days='+$('#days').value)).json();var sel=$('#site');sel.innerHTML=sites.map(function(s){return '<option value="'+esc(s.site)+'">'+esc(s.site)+' ('+n(s.visitors)+')</option>'}).join('');if(!site&&sites[0])site=sites[0].site;if(site&&!sites.some(function(s){return s.site===site}))sel.insertAdjacentHTML('afterbegin','<option value="'+esc(site)+'">'+esc(site)+' (0)</option>');sel.value=site;$('#sitewrap').style.display=sites.length>1?'':'none'}
+async function load(){var days=$('#days').value;await loadSites();S=await (await fetch(BASE+'/stats.json?site='+encodeURIComponent(site)+'&days='+days)).json();$('#csv').href=BASE+'/export.csv?site='+encodeURIComponent(site);$('#jsonl').href=BASE+'/export.jsonl?site='+encodeURIComponent(site);render();connect()}
 function render(){
   if(S.empty){$('#app').innerHTML='<p class="muted">No events yet. Add <code>&lt;script defer src="'+location.origin+'/t.js"&gt;&lt;/script&gt;</code> to a page and load it.</p>';return}
   var h='';
-  h+='<div class="tiles">'+tile('live5m',S.live.visitors5m,'on site now','live')+tile('today_u',S.today.uniques,'visitors today')+tile('today_pv',S.today.pageviews,'pageviews today')+tile('all_u',S.allTimeVisitors,'visitors, all time')+tile('avg',secs(S.engagement.avgSeconds),'avg time on page')+'</div>';
+  h+='<div class="tiles">'+tile('live5m',S.live.visitors5m,'on site now','live')+tile('range_u',S.range.visitors,'visitors, last '+S.days+' days')+tile('range_pv',S.range.pageviews,'pageviews, last '+S.days+' days')+tile('today_u',S.today.uniques,'visitors today')+tile('all_u',S.allTimeVisitors,'visitors, all time')+tile('avg',secs(S.engagement.avgSeconds),'avg time on page')+'</div>';
   if(sites.length>1)h+='<h2>All sites</h2><div class="wrap"><table><tr><th>site</th><th>visitors</th><th>events</th><th>last seen</th></tr>'+sites.map(function(s){return '<tr><td><a href="?site='+encodeURIComponent(s.site)+'">'+esc(s.site)+'</a></td><td>'+n(s.visitors)+'</td><td>'+n(s.events)+'</td><td>'+new Date(s.last).toLocaleString()+'</td></tr>'}).join('')+'</table></div>';
   var names=S.names.slice(0,9),rest=S.names.slice(9);
   h+='<h2>Daily</h2><div class="wrap"><table id="daily"><tr><th>day</th><th>visitors</th>'+names.map(function(x){return '<th>'+esc(x)+'</th>'}).join('')+'</tr>';
-  S.daily.slice(0,14).forEach(function(d){h+='<tr data-day="'+d.day+'"><td>'+d.day+'</td><td data-c="_u">'+n(d.uniques)+'</td>'+names.map(function(x){var c=d.counts[x];return '<td data-c="'+esc(x)+'"'+(c?'':' class="z"')+'>'+(c||'·')+'</td>'}).join('')+'</tr>'});
+  S.daily.forEach(function(d){h+='<tr data-day="'+d.day+'"><td>'+d.day+'</td><td data-c="_u">'+n(d.uniques)+'</td>'+names.map(function(x){var c=d.counts[x];return '<td data-c="'+esc(x)+'"'+(c?'':' class="z"')+'>'+(c||'·')+'</td>'}).join('')+'</tr>'});
   h+='</table></div>';
-  if(S.daily.length>14)h+='<p class="muted">table shows 14 days; tiles and lists cover the last '+S.days+'</p>';
   if(rest.length)h+='<p class="muted">also counted: '+rest.map(function(x){return esc(x)+' ('+n(S.totals[x])+')'}).join(', ')+'</p>';
   h+='<div class="cols">';
   h+=col('Referrers',S.refs,function(r){return [r.ref,r.u]},['source','visitors']);
@@ -72,7 +71,7 @@ function line(e,fresh){var p=e.props||{};var extra=e.name==='click'?p.t:e.name==
 function bump(el){if(!el)return;el.classList.remove('bump');void el.offsetWidth;el.classList.add('bump')}
 var reloadTimer=null;
 function onEvent(e){
-  if(!site||S.empty){site=e.site;$('#site').value=site;loadSites().then(load);return}
+  if(!site||S.empty){site=e.site;$('#site').value=site;load();return}
   if(e.site!==site)return;
   clearTimeout(reloadTimer);reloadTimer=setTimeout(load,2000);
   var t=$('#ticker');if(t.firstChild&&t.firstChild.className==='muted')t.innerHTML='';t.insertAdjacentHTML('afterbegin',line(e,true));while(t.children.length>60)t.removeChild(t.lastChild);
@@ -80,7 +79,7 @@ function onEvent(e){
   if(S.names.indexOf(e.name)<0){S.names.push(e.name);S.totals[e.name]=0}
   S.totals[e.name]=(S.totals[e.name]||0)+1;
   var d=S.daily[0];if(d&&d.day===e.day){d.counts[e.name]=(d.counts[e.name]||0)+1;var cell=document.querySelector('#daily tr[data-day="'+e.day+'"] td[data-c="'+e.name+'"]');if(cell){cell.textContent=d.counts[e.name];cell.classList.remove('z');bump(cell)}else if(S.names.indexOf(e.name)>=9){}else render()}
-  if(e.name==='pageview'&&d&&d.day===e.day){S.today.pageviews++;var el=$('#t_today_pv');el.textContent=n(S.today.pageviews);bump(el)}
+  if(e.name==='pageview'&&d&&d.day===e.day){S.today.pageviews++;S.range.pageviews++;var el=$('#t_range_pv');el.textContent=n(S.range.pageviews);bump(el);var el2=$('#t_today_u');if(el2)el2.textContent=n(S.today.uniques)}
 }
 var esSite=null;function connect(){if(es&&esSite===site)return;if(es)es.close();esSite=site;es=new EventSource(BASE+'/stream?site='+encodeURIComponent(site));es.onopen=function(){$('#dot').classList.add('on')};es.onerror=function(){$('#dot').classList.remove('on')};es.onmessage=function(m){try{onEvent(JSON.parse(m.data))}catch(e){}}}
 $('#site').onchange=function(){site=this.value;history.replaceState(null,'','?site='+encodeURIComponent(site));load()};

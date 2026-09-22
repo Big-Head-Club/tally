@@ -44,6 +44,7 @@ test('ingests, counts uniques per ip+ua per day, aggregates', async () => {
   assert.equal(s.today.pageviews, 3);
   assert.equal(s.today.uniques, 2);
   assert.equal(s.allTimeVisitors, 2);
+  assert.deepEqual(s.range, { visitors: 2, pageviews: 3 });
   assert.deepEqual(s.clicks, [{ t: 'Play', c: 2 }]);
   assert.deepEqual(s.refs, [{ ref: 'reddit.com', u: 1 }]);
   assert.equal(s.engagement.avgSeconds, 30);
@@ -108,6 +109,19 @@ test('server-side track() and visitor() agree with the browser hash', async () =
   assert.equal(s.totals.purchase, 1);
   assert.equal(s.recent[0].vid, vid);
   await assert.rejects(() => t.tally.track('bad name!'));
+  await t.close();
+});
+
+test('the day range scopes the tiles, the totals and the table', async () => {
+  const t = await boot();
+  await t.post({ n: 'pageview', s: 'demo', d: {} }, { 'user-agent': 'A', 'x-forwarded-for': '1.1.1.1' });
+  const wide = await t.stats('demo', 30);
+  const narrow = await t.stats('demo', 7);
+  assert.equal(wide.daily.length, 30);
+  assert.equal(narrow.daily.length, 7);          // the table follows the picker
+  assert.equal(narrow.days, 7);
+  assert.equal(narrow.range.visitors, 1);
+  assert.equal(narrow.range.pageviews, 1);
   await t.close();
 });
 

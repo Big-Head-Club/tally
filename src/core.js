@@ -2,7 +2,7 @@
 // build a small request object and hand it here.
 import { EventEmitter } from 'node:events';
 import { timingSafeEqual } from 'node:crypto';
-import { visitorId, randomToken, dayIn } from './hash.js';
+import { visitorId, randomToken, dayIn, startOfDay, nextDay } from './hash.js';
 import { CLIENT_JS } from './client.js';
 import { dashboardHtml } from './dashboard.js';
 
@@ -115,18 +115,41 @@ export function createCore(opts) {
     return visitorId(secret, dayIn(tz, Date.now()), ip, ua, site);
   }
 
-  async function stats(site, days = 30) {
+  /**
+   * Stats for a site. `win` is an optional {from, to} pair of YYYY-MM-DD days in
+   * the dashboard's timezone, both ends counted; without it, the last `days` days.
+   */
+  async function stats(site, days = 30, win = null) {
     await ready;
     const nowMs = Date.now();
-    const sinceMs = nowMs - days * 86_400_000;
     const todayDay = dayIn(tz, nowMs);
-    const raw = await store.stats(site, { sinceMs, todayDay, nowMs });
-    return shapeStats(site, raw, { days, tz, nowMs, todayDay });
+    const to = win?.to || todayDay;
+    const from = win?.from || dayIn(tz, startOfDay(tz, to) - (days - 1) * 86_400_000);
+    const sinceMs = startOfDay(tz, from);
+    const untilMs = startOfDay(tz, nextDay(to));
+    const rows = Math.min(90, Math.max(1, Math.round((untilMs - sinceMs) / 86_400_000)));
+    const raw = await store.stats(site, { sinceMs, untilMs, todayDay, nowMs });
+    return shapeStats(site, raw, { days: rows, from, to, tz, nowMs, endMs: untilMs - 1, todayDay });
   }
 
   async function sites(days = 30) {
     await ready;
     return store.sites(Date.now() - days * 86_400_000);
+  }
+
+  /** The same list, for an exact window. */
+  async function sitesBetween(sinceMs, untilMs) {
+    await ready;
+    return store.sites(sinceMs, untilMs);
+  }
+
+  /** {from, to} from the query, both YYYY-MM-DD days in `tz`; null when absent. */
+  function dayRange(req) {
+    const ok = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : '');
+    const from = ok(req.query.get('from'));
+    const to = ok(req.query.get('to')) || dayIn(tz, Date.now());
+    if (!from) return null;
+    return from <= to ? { from, to } : { from: to, to: from };
   }
 
   /** Per-site visitors who did something: clicked, started, or stayed 10s. [{site, engaged}] */
@@ -192,11 +215,15 @@ export function createCore(opts) {
     if (sub === '') {
       return { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }, body: dashboardHtml({ base: `${prefix}/admin/analytics/${token}`, tz }) };
     }
-    if (sub === 'sites.json') return json(200, await sites(days));
+    if (sub === 'sites.json') {
+      const win = dayRange(req);
+      if (!win) return json(200, await sites(days));
+      return json(200, await sitesBetween(startOfDay(tz, win.from), startOfDay(tz, nextDay(win.to))));
+    }
     if (sub === 'stats.json') {
       const s = site || (await sites(days))[0]?.site;
       if (!s) return json(200, { site: null, empty: true });
-      return json(200, await stats(s, days));
+      return json(200, await stats(s, days, dayRange(req)));
     }
     if (sub === 'stream') return { sse: { site: site || null } };
     if (sub === 'export.jsonl' || sub === 'export.csv') {
@@ -242,7 +269,7 @@ export function createCore(opts) {
     await store.close();
   }
 
-  return { handle, track, stats, sites, countByName, engagedSites, visitorIdFor, events: emitter, ready, dashboardUrl, get token() { return token; }, tz, prefix, close };
+  return { handle, track, stats, sites, sitesBetween, countByName, engagedSites, visitorIdFor, events: emitter, ready, dashboardUrl, get token() { return token; }, tz, prefix, close };
 }
 
 function csvCell(v) {
@@ -251,7 +278,7 @@ function csvCell(v) {
 }
 
 /** Turn raw store rows into the dashboard's JSON. */
-function shapeStats(site, raw, { days, tz, nowMs, todayDay }) {
+function shapeStats(site, raw, { days, from, to, tz, nowMs, endMs, todayDay }) {
   const counts = {};
   for (const r of raw.daily) counts[r.name] = (counts[r.name] || 0) + r.c;
   const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
@@ -265,7 +292,7 @@ function shapeStats(site, raw, { days, tz, nowMs, todayDay }) {
   // Fill missing days so the table has one row per day, newest first.
   const daily = [];
   for (let i = 0; i < Math.min(days, 90); i++) {
-    const d = dayIn(tz, nowMs - i * 86_400_000);
+    const d = dayIn(tz, (endMs ?? nowMs) - i * 86_400_000);
     daily.push(byDay.get(d) || { day: d, uniques: 0, counts: {} });
   }
 
@@ -280,7 +307,7 @@ function shapeStats(site, raw, { days, tz, nowMs, todayDay }) {
   for (const r of raw.totals) totals[r.name] = r.c;
 
   return {
-    site, tz, days, todayDay, generatedAt: nowMs,
+    site, tz, days, from, to, todayDay, generatedAt: nowMs,
     firstSeen: raw.firstSeen,
     live: { visitors5m: raw.live5m, events1h: raw.live1h },
     today: { pageviews: raw.today?.c ?? 0, uniques: raw.today?.u ?? 0 },

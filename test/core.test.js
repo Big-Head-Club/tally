@@ -125,6 +125,25 @@ test('the day range scopes the tiles, the totals and the table', async () => {
   await t.close();
 });
 
+test('an exact day range scopes the numbers and the table', async () => {
+  const t = await boot();
+  const today = new Date().toISOString().slice(0, 10);              // the harness runs in UTC
+  await t.post({ n: 'pageview', s: 'demo', d: {} }, { 'user-agent': 'A', 'x-forwarded-for': '1.1.1.1' });
+  const url = (q) => fetch(`${t.base}/admin/analytics/tok/stats.json?site=demo&${q}`).then((r) => r.json());
+  const one = await url(`from=${today}&to=${today}`);
+  assert.equal(one.from, today);
+  assert.equal(one.to, today);
+  assert.equal(one.daily.length, 1);
+  assert.equal(one.range.pageviews, 1);
+  const before = '2026-01-01';
+  const past = await url(`from=${before}&to=${before}`);
+  assert.equal(past.range.pageviews, 0);                            // today's event is outside the window
+  assert.equal(past.daily[0].day, before);
+  const sitesInWindow = await (await fetch(`${t.base}/admin/analytics/tok/sites.json?from=${before}&to=${before}`)).json();
+  assert.deepEqual(sitesInWindow, []);
+  await t.close();
+});
+
 test('exports csv and jsonl', async () => {
   const t = await boot();
   await t.post({ n: 'click', s: 'demo', d: { t: 'a,"b"' } });

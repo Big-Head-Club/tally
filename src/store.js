@@ -52,9 +52,10 @@ export function openSqlite(file) {
       return v;
     },
 
-    async sites(sinceMs) {
+    async sites(sinceMs, untilMs = Infinity) {
+      const u = Number.isFinite(untilMs) ? untilMs : 8.64e15;
       return q(`select site, count(*) events, count(distinct vid) visitors, max(ts) last
-                from events where ts >= ? group by site order by visitors desc, events desc`).all(sinceMs);
+                from events where ts >= ? and ts < ? group by site order by visitors desc, events desc`).all(sinceMs, u);
     },
 
     async engagedSites(sinceMs) {
@@ -67,27 +68,28 @@ export function openSqlite(file) {
       return q(`select site, count(*) c, count(distinct vid) u from events where name=? and ts>=? group by site`).all(name, sinceMs);
     },
 
-    async stats(site, { sinceMs, todayDay, nowMs }) {
+    async stats(site, { sinceMs, untilMs = Infinity, todayDay, nowMs }) {
       const s = site;
+      const u = Number.isFinite(untilMs) ? untilMs : 8.64e15;   // the end of the window, exclusive
       return {
-        daily: q(`select day, name, count(*) c from events where site=? and ts>=? group by day, name`).all(s, sinceMs),
-        dailyUniques: q(`select day, count(distinct vid) u from events where site=? and ts>=? group by day`).all(s, sinceMs),
-        totals: q(`select name, count(*) c from events where site=? and ts>=? group by name`).all(s, sinceMs),
-        rangeVisitors: q(`select count(distinct vid) u from events where site=? and ts>=?`).get(s, sinceMs)?.u ?? 0,
-        rangePageviews: q(`select count(*) c from events where site=? and name='pageview' and ts>=?`).get(s, sinceMs)?.c ?? 0,
+        daily: q(`select day, name, count(*) c from events where site=? and ts>=? and ts<? group by day, name`).all(s, sinceMs, u),
+        dailyUniques: q(`select day, count(distinct vid) u from events where site=? and ts>=? and ts<? group by day`).all(s, sinceMs, u),
+        totals: q(`select name, count(*) c from events where site=? and ts>=? and ts<? group by name`).all(s, sinceMs, u),
+        rangeVisitors: q(`select count(distinct vid) u from events where site=? and ts>=? and ts<?`).get(s, sinceMs, u)?.u ?? 0,
+        rangePageviews: q(`select count(*) c from events where site=? and name='pageview' and ts>=? and ts<?`).get(s, sinceMs, u)?.c ?? 0,
         allTimeVisitors: q(`select count(distinct vid) u from events where site=?`).get(s)?.u ?? 0,
         firstSeen: q(`select min(ts) t from events where site=?`).get(s)?.t ?? null,
         live5m: q(`select count(distinct vid) u from events where site=? and ts>=?`).get(s, nowMs - 5 * 60_000)?.u ?? 0,
         live1h: q(`select count(*) c from events where site=? and ts>=?`).get(s, nowMs - 3_600_000)?.c ?? 0,
-        refs: q(`select ref, count(distinct vid) u from events where site=? and name='pageview' and ts>=? and ref<>'' group by ref order by u desc limit 12`).all(s, sinceMs),
-        paths: q(`select path, count(distinct vid) u, count(*) c from events where site=? and name='pageview' and ts>=? group by path order by u desc limit 12`).all(s, sinceMs),
-        clicks: q(`select json_extract(props,'$.t') t, count(*) c from events where site=? and name='click' and ts>=? group by t order by c desc limit 15`).all(s, sinceMs),
-        errors: q(`select json_extract(props,'$.m') m, count(*) c, max(ts) last from events where site=? and name='error' and ts>=? group by m order by last desc limit 10`).all(s, sinceMs),
-        devices: q(`select case when json_extract(props,'$.touch') then 'touch' else 'mouse' end d, count(distinct vid) u from events where site=? and name='pageview' and ts>=? group by d`).all(s, sinceMs),
-        engagement: q(`select avg(json_extract(props,'$.s')) avg, count(*) n from events where site=? and name='leave' and ts>=?`).get(s, sinceMs),
+        refs: q(`select ref, count(distinct vid) u from events where site=? and name='pageview' and ts>=? and ts<? and ref<>'' group by ref order by u desc limit 12`).all(s, sinceMs, u),
+        paths: q(`select path, count(distinct vid) u, count(*) c from events where site=? and name='pageview' and ts>=? and ts<? group by path order by u desc limit 12`).all(s, sinceMs, u),
+        clicks: q(`select json_extract(props,'$.t') t, count(*) c from events where site=? and name='click' and ts>=? and ts<? group by t order by c desc limit 15`).all(s, sinceMs, u),
+        errors: q(`select json_extract(props,'$.m') m, count(*) c, max(ts) last from events where site=? and name='error' and ts>=? and ts<? group by m order by last desc limit 10`).all(s, sinceMs, u),
+        devices: q(`select case when json_extract(props,'$.touch') then 'touch' else 'mouse' end d, count(distinct vid) u from events where site=? and name='pageview' and ts>=? and ts<? group by d`).all(s, sinceMs, u),
+        engagement: q(`select avg(json_extract(props,'$.s')) avg, count(*) n from events where site=? and name='leave' and ts>=? and ts<?`).get(s, sinceMs, u),
         ab: q(`select j.key k, j.value arm, e.name, count(distinct e.vid) u
                from events e, json_each(e.props, '$.ab') j
-               where e.site=? and e.ts>=? group by k, arm, e.name`).all(s, sinceMs),
+               where e.site=? and e.ts>=? and e.ts<? group by k, arm, e.name`).all(s, sinceMs, u),
         recent: q(`select ts, name, vid, path, ref, props from events where site=? order by id desc limit 30`).all(s),
         today: q(`select count(*) c, count(distinct vid) u from events where site=? and day=? and name='pageview'`).get(s, todayDay),
       };

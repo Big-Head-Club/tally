@@ -8,7 +8,8 @@ export function dashboardHtml({ base, tz }) {
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:32px 20px 80px}
 main{max-width:920px;margin:0 auto}h1{font-size:18px;margin:0 0 4px}h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:40px 0 12px;font-weight:500}
 a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
-.nav{color:var(--dim);margin-bottom:20px}.nav select,.nav button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font:inherit}
+.nav{color:var(--dim);margin-bottom:20px}.nav input[type=date]{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font:inherit}
+.nav select,.nav button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font:inherit}
 .tiles{display:flex;flex-wrap:wrap;gap:8px}.tile{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 18px;min-width:130px}
 .tile b{display:block;font-size:24px;color:var(--acc);font-weight:600}.tile span{color:var(--dim);font-size:12px}
 .tile.live b{color:var(--ok)}
@@ -21,7 +22,7 @@ th:first-child,td:first-child{text-align:left}td.z{color:var(--line)}.wrap{overf
 .err{color:var(--bad)}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:6px}.dot.on{background:var(--ok)}
 </style></head><body><main>
 <h1>Analytics</h1>
-<div class="nav"><span class="dot" id="dot"></span><span id="sitewrap">site <select id="site"></select></span> · last <select id="days"><option>7</option><option>14</option><option selected>30</option><option>90</option></select> days · times in ${esc(tz)} · <a id="csv" href="#">csv</a> · <a id="jsonl" href="#">jsonl</a></div>
+<div class="nav"><span class="dot" id="dot"></span><span id="sitewrap">site <select id="site"></select></span> · <select id="days"><option value="1">today</option><option value="2">yesterday and today</option><option value="7">last 7 days</option><option value="14">last 14 days</option><option value="30" selected>last 30 days</option><option value="90">last 90 days</option><option value="">custom</option></select> <input type="date" id="from"> to <input type="date" id="to"> · times in ${esc(tz)} · <a id="csv" href="#">csv</a> · <a id="jsonl" href="#">jsonl</a></div>
 <div id="app"><p class="muted">loading…</p></div>
 <h2>Live</h2>
 <div id="ticker"><div class="muted">waiting for events…</div></div>
@@ -34,13 +35,14 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return
 function n(v){return v==null?'—':Number(v).toLocaleString()}
 function fmtT(ms){var d=new Date(ms);return d.toLocaleTimeString([],{hour12:false})}
 function secs(s){if(s==null)return '—';s=Math.round(s);return s<60?s+'s':Math.floor(s/60)+'m '+(s%60)+'s'}
-async function loadSites(){sites=await (await fetch(BASE+'/sites.json?days='+$('#days').value)).json();var sel=$('#site');sel.innerHTML=sites.map(function(s){return '<option value="'+esc(s.site)+'">'+esc(s.site)+' ('+n(s.visitors)+')</option>'}).join('');if(!site&&sites[0])site=sites[0].site;if(site&&!sites.some(function(s){return s.site===site}))sel.insertAdjacentHTML('afterbegin','<option value="'+esc(site)+'">'+esc(site)+' (0)</option>');sel.value=site;$('#sitewrap').style.display=sites.length>1?'':'none'}
-async function load(){var days=$('#days').value;await loadSites();S=await (await fetch(BASE+'/stats.json?site='+encodeURIComponent(site)+'&days='+days)).json();$('#csv').href=BASE+'/export.csv?site='+encodeURIComponent(site);$('#jsonl').href=BASE+'/export.jsonl?site='+encodeURIComponent(site);render();connect()}
+function win(){return 'from='+$('#from').value+'&to='+$('#to').value}
+async function loadSites(){sites=await (await fetch(BASE+'/sites.json?'+win())).json();var sel=$('#site');sel.innerHTML=sites.map(function(s){return '<option value="'+esc(s.site)+'">'+esc(s.site)+' ('+n(s.visitors)+')</option>'}).join('');if(!site&&sites[0])site=sites[0].site;if(site&&!sites.some(function(s){return s.site===site}))sel.insertAdjacentHTML('afterbegin','<option value="'+esc(site)+'">'+esc(site)+' (0)</option>');sel.value=site;$('#sitewrap').style.display=sites.length>1?'':'none'}
+async function load(){await loadSites();S=await (await fetch(BASE+'/stats.json?site='+encodeURIComponent(site)+'&'+win())).json();history.replaceState(null,'','?site='+encodeURIComponent(site)+'&'+win());$('#csv').href=BASE+'/export.csv?site='+encodeURIComponent(site);$('#jsonl').href=BASE+'/export.jsonl?site='+encodeURIComponent(site);render();connect()}
 function render(){
   if(S.empty){$('#app').innerHTML='<p class="muted">No events yet. Add <code>&lt;script defer src="'+location.origin+'/t.js"&gt;&lt;/script&gt;</code> to a page and load it.</p>';return}
   var h='';
-  h+='<div class="tiles">'+tile('live5m',S.live.visitors5m,'on site now','live')+tile('range_u',S.range.visitors,'visitors, last '+S.days+' days')+tile('range_pv',S.range.pageviews,'pageviews, last '+S.days+' days')+tile('today_u',S.today.uniques,'visitors today')+tile('all_u',S.allTimeVisitors,'visitors, all time')+tile('avg',secs(S.engagement.avgSeconds),'avg time on page')+'</div>';
-  if(sites.length>1)h+='<h2>All sites</h2><div class="wrap"><table><tr><th>site</th><th>visitors</th><th>events</th><th>last seen</th></tr>'+sites.map(function(s){return '<tr><td><a href="?site='+encodeURIComponent(s.site)+'">'+esc(s.site)+'</a></td><td>'+n(s.visitors)+'</td><td>'+n(s.events)+'</td><td>'+new Date(s.last).toLocaleString()+'</td></tr>'}).join('')+'</table></div>';
+  h+='<div class="tiles">'+tile('live5m',S.live.visitors5m,'on site now','live')+tile('range_u',S.range.visitors,'visitors, '+span())+tile('range_pv',S.range.pageviews,'pageviews, '+span())+tile('today_u',S.today.uniques,'visitors today')+tile('all_u',S.allTimeVisitors,'visitors, all time')+tile('avg',secs(S.engagement.avgSeconds),'avg time on page')+'</div>';
+  if(sites.length>1)h+='<h2>All sites, '+span()+'</h2><div class="wrap"><table><tr><th>site</th><th>visitors</th><th>events</th><th>last seen</th></tr>'+sites.map(function(s){return '<tr><td><a href="?site='+encodeURIComponent(s.site)+'">'+esc(s.site)+'</a></td><td>'+n(s.visitors)+'</td><td>'+n(s.events)+'</td><td>'+new Date(s.last).toLocaleString()+'</td></tr>'}).join('')+'</table></div>';
   var names=S.names.slice(0,9),rest=S.names.slice(9);
   h+='<h2>Daily</h2><div class="wrap"><table id="daily"><tr><th>day</th><th>visitors</th>'+names.map(function(x){return '<th>'+esc(x)+'</th>'}).join('')+'</tr>';
   S.daily.forEach(function(d){h+='<tr data-day="'+d.day+'"><td>'+d.day+'</td><td data-c="_u">'+n(d.uniques)+'</td>'+names.map(function(x){var c=d.counts[x];return '<td data-c="'+esc(x)+'"'+(c?'':' class="z"')+'>'+(c||'·')+'</td>'}).join('')+'</tr>'});
@@ -65,13 +67,17 @@ function render(){
   $('#app').innerHTML=h;
   $('#ticker').innerHTML=S.recent.map(line).join('')||'<div class="muted">no events yet</div>';
 }
+function span(){var f=S.from,t=S.to;return f===t?f:f+' to '+t}
 function tile(id,v,label,cls){return '<div class="tile '+(cls||'')+'"><b id="t_'+id+'">'+(typeof v==='number'?n(v):esc(v))+'</b><span>'+label+'</span></div>'}
 function col(title,rows,f,head,raw){if(!rows||!rows.length)return '<div><h2>'+title+'</h2><p class="muted">none</p></div>';return '<div><h2>'+title+'</h2><table><tr><th>'+head[0]+'</th><th>'+head[1]+'</th></tr>'+rows.map(function(r){var c=f(r);return '<tr><td>'+(raw?c[0]:esc(c[0]))+'</td><td>'+n(c[1])+'</td></tr>'}).join('')+'</table></div>'}
 function line(e,fresh){var p=e.props||{};var extra=e.name==='click'?p.t:e.name==='pageview'?(e.ref?'from '+e.ref:'')+(p.touch?' touch':''):e.name==='leave'?secs(p.s):e.name==='error'?p.m:JSON.stringify(p).replace(/"/g,'').slice(0,80);return '<div'+(fresh?' class="new"':'')+'>'+fmtT(e.ts)+' <span class="n">'+esc(e.name)+'</span> '+esc(e.vid.slice(0,4))+' '+esc(e.path||'')+' <span>'+esc(extra||'')+'</span></div>'}
 function bump(el){if(!el)return;el.classList.remove('bump');void el.offsetWidth;el.classList.add('bump')}
 var reloadTimer=null;
 function onEvent(e){
-  if(!site||S.empty){site=e.site;$('#site').value=site;load();return}
+  if(!site||S.empty){site=e.site;$('#site').value=site;(function(){var p=new URLSearchParams(location.search);
+  if(p.get('from')&&p.get('to')){$('#from').value=p.get('from');$('#to').value=p.get('to');$('#days').value=''}
+  else setDates(30);
+  load();})();return}
   if(e.site!==site)return;
   clearTimeout(reloadTimer);reloadTimer=setTimeout(load,2000);
   var t=$('#ticker');if(t.firstChild&&t.firstChild.className==='muted')t.innerHTML='';t.insertAdjacentHTML('afterbegin',line(e,true));while(t.children.length>60)t.removeChild(t.lastChild);
@@ -83,7 +89,10 @@ function onEvent(e){
 }
 var esSite=null;function connect(){if(es&&esSite===site)return;if(es)es.close();esSite=site;es=new EventSource(BASE+'/stream?site='+encodeURIComponent(site));es.onopen=function(){$('#dot').classList.add('on')};es.onerror=function(){$('#dot').classList.remove('on')};es.onmessage=function(m){try{onEvent(JSON.parse(m.data))}catch(e){}}}
 $('#site').onchange=function(){site=this.value;history.replaceState(null,'','?site='+encodeURIComponent(site));load()};
-$('#days').onchange=load;
+function setDates(n){var to=new Date(),from=new Date();from.setDate(from.getDate()-(n-1));$('#to').value=iso(to);$('#from').value=iso(from)}
+function iso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+$('#days').onchange=function(){if(this.value){setDates(+this.value);load()}};
+$('#from').onchange=$('#to').onchange=function(){$('#days').value='';load()};
 loadSites().then(load);
 setInterval(function(){if(document.visibilityState==='visible')load()},60000);
 </script></body></html>`;

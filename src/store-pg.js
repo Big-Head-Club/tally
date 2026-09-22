@@ -31,8 +31,9 @@ export async function openPg(url) {
       await q('insert into tally_meta (k, v) values ($1, $2) on conflict (k) do nothing', [k, make()]);
       return (await q('select v from tally_meta where k=$1', [k]))[0].v;
     },
-    async sites(sinceMs) {
-      return num(await q('select site, count(*) events, count(distinct vid) visitors, max(ts) last from tally_events where ts >= $1 group by site order by visitors desc, events desc', [sinceMs]));
+    async sites(sinceMs, untilMs = Infinity) {
+      const u = Number.isFinite(untilMs) ? untilMs : 8.64e15;
+      return num(await q('select site, count(*) events, count(distinct vid) visitors, max(ts) last from tally_events where ts >= $1 and ts < $2 group by site order by visitors desc, events desc', [sinceMs, u]));
     },
     async engagedSites(sinceMs) {
       return num(await q(`select site, count(distinct vid) engaged from tally_events
@@ -41,25 +42,26 @@ export async function openPg(url) {
     async countByName(name, sinceMs) {
       return num(await q('select site, count(*) c, count(distinct vid) u from tally_events where name=$1 and ts>=$2 group by site', [name, sinceMs]));
     },
-    async stats(s, { sinceMs, todayDay, nowMs }) {
+    async stats(s, { sinceMs, untilMs = Infinity, todayDay, nowMs }) {
       const one = (rows) => num(rows)[0];
+      const u = Number.isFinite(untilMs) ? untilMs : 8.64e15;   // the end of the window, exclusive
       return {
-        daily: num(await q('select day, name, count(*) c from tally_events where site=$1 and ts>=$2 group by day, name', [s, sinceMs])),
-        dailyUniques: num(await q('select day, count(distinct vid) u from tally_events where site=$1 and ts>=$2 group by day', [s, sinceMs])),
-        totals: num(await q('select name, count(*) c from tally_events where site=$1 and ts>=$2 group by name', [s, sinceMs])),
-        rangeVisitors: one(await q('select count(distinct vid) u from tally_events where site=$1 and ts>=$2', [s, sinceMs]))?.u ?? 0,
-        rangePageviews: one(await q(`select count(*) c from tally_events where site=$1 and name='pageview' and ts>=$2`, [s, sinceMs]))?.c ?? 0,
+        daily: num(await q('select day, name, count(*) c from tally_events where site=$1 and ts>=$2 and ts<$3 group by day, name', [s, sinceMs, u])),
+        dailyUniques: num(await q('select day, count(distinct vid) u from tally_events where site=$1 and ts>=$2 and ts<$3 group by day', [s, sinceMs, u])),
+        totals: num(await q('select name, count(*) c from tally_events where site=$1 and ts>=$2 and ts<$3 group by name', [s, sinceMs, u])),
+        rangeVisitors: one(await q('select count(distinct vid) u from tally_events where site=$1 and ts>=$2 and ts<$3', [s, sinceMs, u]))?.u ?? 0,
+        rangePageviews: one(await q(`select count(*) c from tally_events where site=$1 and name='pageview' and ts>=$2 and ts<$3`, [s, sinceMs, u]))?.c ?? 0,
         allTimeVisitors: one(await q('select count(distinct vid) u from tally_events where site=$1', [s]))?.u ?? 0,
         firstSeen: one(await q('select min(ts) t from tally_events where site=$1', [s]))?.t ?? null,
         live5m: one(await q('select count(distinct vid) u from tally_events where site=$1 and ts>=$2', [s, nowMs - 300_000]))?.u ?? 0,
         live1h: one(await q('select count(*) c from tally_events where site=$1 and ts>=$2', [s, nowMs - 3_600_000]))?.c ?? 0,
-        refs: num(await q(`select ref, count(distinct vid) u from tally_events where site=$1 and name='pageview' and ts>=$2 and ref<>'' group by ref order by u desc limit 12`, [s, sinceMs])),
-        paths: num(await q(`select path, count(distinct vid) u, count(*) c from tally_events where site=$1 and name='pageview' and ts>=$2 group by path order by u desc limit 12`, [s, sinceMs])),
-        clicks: num(await q(`select props->>'t' t, count(*) c from tally_events where site=$1 and name='click' and ts>=$2 group by 1 order by c desc limit 15`, [s, sinceMs])),
-        errors: num(await q(`select props->>'m' m, count(*) c, max(ts) last from tally_events where site=$1 and name='error' and ts>=$2 group by 1 order by last desc limit 10`, [s, sinceMs])),
-        devices: num(await q(`select case when coalesce((props->>'touch')::boolean,false) then 'touch' else 'mouse' end d, count(distinct vid) u from tally_events where site=$1 and name='pageview' and ts>=$2 group by 1`, [s, sinceMs])),
-        engagement: one(await q(`select avg((props->>'s')::numeric) avg, count(*) n from tally_events where site=$1 and name='leave' and ts>=$2`, [s, sinceMs])),
-        ab: num(await q(`select j.key k, j.value arm, e.name, count(distinct e.vid) u from tally_events e, jsonb_each_text(e.props->'ab') j where e.site=$1 and e.ts>=$2 group by 1,2,3`, [s, sinceMs])),
+        refs: num(await q(`select ref, count(distinct vid) u from tally_events where site=$1 and name='pageview' and ts>=$2 and ts<$3 and ref<>'' group by ref order by u desc limit 12`, [s, sinceMs, u])),
+        paths: num(await q(`select path, count(distinct vid) u, count(*) c from tally_events where site=$1 and name='pageview' and ts>=$2 and ts<$3 group by path order by u desc limit 12`, [s, sinceMs, u])),
+        clicks: num(await q(`select props->>'t' t, count(*) c from tally_events where site=$1 and name='click' and ts>=$2 and ts<$3 group by 1 order by c desc limit 15`, [s, sinceMs, u])),
+        errors: num(await q(`select props->>'m' m, count(*) c, max(ts) last from tally_events where site=$1 and name='error' and ts>=$2 and ts<$3 group by 1 order by last desc limit 10`, [s, sinceMs, u])),
+        devices: num(await q(`select case when coalesce((props->>'touch')::boolean,false) then 'touch' else 'mouse' end d, count(distinct vid) u from tally_events where site=$1 and name='pageview' and ts>=$2 and ts<$3 group by 1`, [s, sinceMs, u])),
+        engagement: one(await q(`select avg((props->>'s')::numeric) avg, count(*) n from tally_events where site=$1 and name='leave' and ts>=$2 and ts<$3`, [s, sinceMs, u])),
+        ab: num(await q(`select j.key k, j.value arm, e.name, count(distinct e.vid) u from tally_events e, jsonb_each_text(e.props->'ab') j where e.site=$1 and e.ts>=$2 and e.ts<$3 group by 1,2,3`, [s, sinceMs, u])),
         recent: num(await q('select ts, name, vid, path, ref, props from tally_events where site=$1 order by id desc limit 30', [s])),
         today: one(await q(`select count(*) c, count(distinct vid) u from tally_events where site=$1 and day=$2 and name='pageview'`, [s, todayDay])),
       };

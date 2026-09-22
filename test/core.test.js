@@ -144,6 +144,17 @@ test('an exact day range scopes the numbers and the table', async () => {
   await t.close();
 });
 
+test('the dashboard page carries the date range and starts once', async () => {
+  const t = await boot();
+  const html = await (await fetch(`${t.base}/admin/analytics/tok`)).text();
+  assert.match(html, /<input type="date" id="from">/);
+  assert.match(html, /<input type="date" id="to">/);
+  assert.equal((html.match(/setDates\(30\)/g) || []).length, 1);       // one startup, at the end
+  assert.match(html, /setDates\(30\);\n\s*load\(\);\}\)\(\);\nsetInterval/);
+  assert.ok(!html.includes('loadSites().then(load)'), 'old startup path is gone');
+  await t.close();
+});
+
 test('exports csv and jsonl', async () => {
   const t = await boot();
   await t.post({ n: 'click', s: 'demo', d: { t: 'a,"b"' } });

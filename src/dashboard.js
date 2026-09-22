@@ -74,10 +74,7 @@ function line(e,fresh){var p=e.props||{};var extra=e.name==='click'?p.t:e.name==
 function bump(el){if(!el)return;el.classList.remove('bump');void el.offsetWidth;el.classList.add('bump')}
 var reloadTimer=null;
 function onEvent(e){
-  if(!site||S.empty){site=e.site;$('#site').value=site;(function(){var p=new URLSearchParams(location.search);
-  if(p.get('from')&&p.get('to')){$('#from').value=p.get('from');$('#to').value=p.get('to');$('#days').value=''}
-  else setDates(30);
-  load();})();return}
+  if(!site||S.empty){site=e.site;$('#site').value=site;load();return}
   if(e.site!==site)return;
   clearTimeout(reloadTimer);reloadTimer=setTimeout(load,2000);
   var t=$('#ticker');if(t.firstChild&&t.firstChild.className==='muted')t.innerHTML='';t.insertAdjacentHTML('afterbegin',line(e,true));while(t.children.length>60)t.removeChild(t.lastChild);
@@ -93,7 +90,10 @@ function setDates(n){var to=new Date(),from=new Date();from.setDate(from.getDate
 function iso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 $('#days').onchange=function(){if(this.value){setDates(+this.value);load()}};
 $('#from').onchange=$('#to').onchange=function(){$('#days').value='';load()};
-loadSites().then(load);
+(function(){var p=new URLSearchParams(location.search);
+  if(p.get('from')&&p.get('to')){$('#from').value=p.get('from');$('#to').value=p.get('to');$('#days').value=''}
+  else setDates(30);
+  load();})();
 setInterval(function(){if(document.visibilityState==='visible')load()},60000);
 </script></body></html>`;
 }

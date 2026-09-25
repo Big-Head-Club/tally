@@ -37,7 +37,15 @@ export async function openPg(url) {
     },
     async engagedSites(sinceMs) {
       return num(await q(`select site, count(distinct vid) engaged from tally_events
-        where ts>=$1 and (name in ('click','start') or (name='leave' and (props->>'s')::numeric >= 10)) group by site`, [sinceMs]));
+        where ts>=$1 and (name='click' or (name='leave' and (props->>'s')::numeric >= 10)) group by site`, [sinceMs]));
+    },
+
+    async engagedCountByName(name, sinceMs) {
+      return num(await q(`select e.site, count(*) c, count(distinct e.vid) u from tally_events e
+        where e.name=$1 and e.ts>=$2 and exists (
+          select 1 from tally_events x where x.site=e.site and x.vid=e.vid and x.ts>=$2
+            and (x.name='click' or (x.name='leave' and (x.props->>'s')::numeric >= 10)))
+        group by e.site`, [name, sinceMs]));
     },
     async countByName(name, sinceMs) {
       return num(await q('select site, count(*) c, count(distinct vid) u from tally_events where name=$1 and ts>=$2 group by site', [name, sinceMs]));

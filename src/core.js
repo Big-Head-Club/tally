@@ -158,6 +158,12 @@ export function createCore(opts) {
     return store.engagedSites(Date.now() - days * 86_400_000);
   }
 
+  /** The same, but only from visitors who clicked or stayed: [{site, c, u}]. */
+  async function engagedCountByName(name, days = 30) {
+    await ready;
+    return store.engagedCountByName(name, Date.now() - days * 86_400_000);
+  }
+
   /** Per-site totals of one event name since `days` ago: [{site, c, u}]. */
   async function countByName(name, days = 30) {
     await ready;
@@ -269,7 +275,7 @@ export function createCore(opts) {
     await store.close();
   }
 
-  return { handle, track, stats, sites, sitesBetween, countByName, engagedSites, visitorIdFor, events: emitter, ready, dashboardUrl, get token() { return token; }, tz, prefix, close };
+  return { handle, track, stats, sites, sitesBetween, countByName, engagedCountByName, engagedSites, visitorIdFor, events: emitter, ready, dashboardUrl, get token() { return token; }, tz, prefix, close };
 }
 
 function csvCell(v) {

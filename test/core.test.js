@@ -155,6 +155,25 @@ test('the dashboard page carries the date range and starts once', async () => {
   await t.close();
 });
 
+test('runs only count when the visitor was really there', async () => {
+  const t = await boot();
+  const ev = (n, d = {}) => ({ n, s: 'g.com', d });
+  // A crawler that loads the page: the game fires a start for it and nothing else.
+  for (const ip of ['5.5.5.1', '5.5.5.2', '5.5.5.3']) {
+    await t.post([ev('pageview'), ev('start', { mode: 'daily' })], { 'user-agent': 'Mozilla/5.0 Safari', 'x-forwarded-for': ip });
+  }
+  // Two people who played.
+  await t.post([ev('pageview'), ev('start'), ev('click', { t: 'Play' }), ev('start')], { 'user-agent': 'Mozilla/5.0 Safari', 'x-forwarded-for': '6.6.6.1' });
+  await t.post([ev('pageview'), ev('start'), ev('leave', { s: 40 })], { 'user-agent': 'Mozilla/5.0 Safari', 'x-forwarded-for': '6.6.6.2' });
+  const raw = JSON.parse(JSON.stringify(await t.tally.countByName('start', 7)));
+  assert.deepEqual(raw, [{ site: 'g.com', c: 6, u: 5 }]);             // what the old ranking saw
+  const real = JSON.parse(JSON.stringify(await t.tally.engagedCountByName('start', 7)));
+  assert.deepEqual(real, [{ site: 'g.com', c: 3, u: 2 }]);            // two people, three runs
+  const eng = JSON.parse(JSON.stringify(await t.tally.engagedSites(7)));
+  assert.deepEqual(eng, [{ site: 'g.com', engaged: 2 }]);             // a start alone is not engagement
+  await t.close();
+});
+
 test('exports csv and jsonl', async () => {
   const t = await boot();
   await t.post({ n: 'click', s: 'demo', d: { t: 'a,"b"' } });

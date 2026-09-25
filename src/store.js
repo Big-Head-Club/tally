@@ -20,6 +20,10 @@ create index if not exists events_site_name_day on events(site, name, day);
 create table if not exists meta (k text primary key, v text not null);
 `;
 
+// A visitor was really there if they clicked or stayed ten seconds. A 'start' does
+// not count: several games fire one on page load, so a crawler earns one for free.
+const ENGAGED_SQLITE = `(name='click' or (name='leave' and json_extract(props,'$.s') >= 10))`;
+
 export function openSqlite(file) {
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
@@ -60,8 +64,16 @@ export function openSqlite(file) {
 
     async engagedSites(sinceMs) {
       return q(`select site, count(distinct vid) engaged from events
-                where ts>=? and (name in ('click','start') or (name='leave' and json_extract(props,'$.s') >= 10))
+                where ts>=? and ${ENGAGED_SQLITE}
                 group by site`).all(sinceMs);
+    },
+
+    /** Events of one name, counted only from visitors who showed they were there. */
+    async engagedCountByName(name, sinceMs) {
+      return q(`select e.site, count(*) c, count(distinct e.vid) u from events e
+                where e.name=? and e.ts>=? and exists (
+                  select 1 from events x where x.site=e.site and x.vid=e.vid and x.ts>=? and ${ENGAGED_SQLITE.replace(/\b(name|props)\b/g, 'x.$1')})
+                group by e.site`).all(name, sinceMs, sinceMs);
     },
 
     async countByName(name, sinceMs) {

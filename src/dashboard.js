@@ -9,7 +9,7 @@ export function dashboardHtml({ base, tz }) {
 main{max-width:920px;margin:0 auto}h1{font-size:18px;margin:0 0 4px}h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:40px 0 12px;font-weight:500}
 a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
 .nav{color:var(--dim);margin-bottom:20px}.nav input[type=date]{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font:inherit}
-.nav select,.nav button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font:inherit}
+.nav select,.nav button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font:inherit;max-width:100%}
 .tiles{display:flex;flex-wrap:wrap;gap:8px}.tile{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 18px;min-width:130px}
 .tile b{display:block;font-size:24px;color:var(--acc);font-weight:600}.tile span{color:var(--dim);font-size:12px}
 .tile.live b{color:var(--ok)}

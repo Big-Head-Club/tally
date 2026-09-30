@@ -1,5 +1,7 @@
 // Postgres store, same interface as store.js. For hosts without a volume:
 // set DATABASE_URL (Neon, Railway Postgres, Supabase) and `npm i pg`.
+import { checkProgress } from './measurement.js';
+
 export async function openPg(url) {
   let pg;
   try { pg = await import('pg'); } catch { throw new Error('tally: DATABASE_URL is set but the "pg" package is not installed. Run: npm i pg'); }
@@ -11,7 +13,18 @@ export async function openPg(url) {
       name text not null, vid text not null, path text, ref text, props jsonb);
     create index if not exists tally_events_site_ts on tally_events(site, ts);
     create index if not exists tally_events_site_name_day on tally_events(site, name, day);
-    create table if not exists tally_meta (k text primary key, v text not null);`);
+    create table if not exists tally_meta (k text primary key, v text not null);
+    create table if not exists tally_measurement_streams (
+      id uuid primary key, browser_id uuid not null, persistent boolean not null,
+      site text not null, game_id text not null, version integer not null check (version = 1),
+      build text, started_at bigint not null, received_at bigint not null,
+      sequence integer not null default 0 check (sequence >= 0),
+      elapsed_ms integer not null default 0 check (elapsed_ms between 0 and 600000),
+      intervals jsonb not null default '[]',
+      actions integer not null default 0 check (actions >= 0),
+      first_action_ms integer, last_action_ms integer,
+      state text not null default 'idle' check (state in ('idle', 'playing', 'paused', 'hidden', 'closed')));
+    create index if not exists tally_measurement_site_started on tally_measurement_streams(site, started_at);`);
   const q = async (sql, params = []) => (await pool.query(sql, params)).rows;
   const num = (rows) => rows.map((r) => { for (const k in r) if (typeof r[k] === 'string' && /^(c|u|n|t|last|avg|events|visitors)$/.test(k) && r[k] !== '' && !isNaN(r[k])) r[k] = Number(r[k]); return r; });
 
@@ -30,6 +43,55 @@ export async function openPg(url) {
       if (got.length) return got[0].v;
       await q('insert into tally_meta (k, v) values ($1, $2) on conflict (k) do nothing', [k, make()]);
       return (await q('select v from tally_meta where k=$1', [k]))[0].v;
+    },
+
+    /**
+     * Commit one cumulative measurement checkpoint. Same contract as the
+     * SQLite store: the stream is anchored on this server's clock at open and
+     * later reports must extend it monotonically or are refused with a reason.
+     */
+    async measurement(e) {
+      const refuse = (reason, status) => { throw Object.assign(new Error(`tally: ${reason}`), { status, reason }); };
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const now = Date.now();
+        if (e.sequence === 0) {
+          await client.query(
+            'insert into tally_measurement_streams (id, browser_id, persistent, site, game_id, version, build, started_at, received_at) values ($1,$2,$3,$4,$5,1,$6,$7,$7) on conflict (id) do nothing',
+            [e.streamId, e.browserId, e.persistent, e.site, e.gameId, e.build, now]);
+        }
+        const { rows: [row] } = await client.query(
+          'select browser_id, persistent, site, game_id, build, started_at, sequence, elapsed_ms, intervals, actions, first_action_ms, last_action_ms, state from tally_measurement_streams where id = $1 for update', [e.streamId]);
+        if (!row) refuse('open_required', 409);
+        if (row.browser_id !== e.browserId || row.site !== e.site || row.game_id !== e.gameId ||
+            row.build !== e.build || row.persistent !== e.persistent) refuse('stream_binding', 409);
+        const stored = { sequence: row.sequence, elapsedMs: row.elapsed_ms, intervals: row.intervals,
+          actions: row.actions, firstActionMs: row.first_action_ms, lastActionMs: row.last_action_ms, state: row.state };
+        const reason = checkProgress(stored, e, now - Number(row.started_at));
+        if (reason) refuse(reason, 409);
+        if (e.sequence > stored.sequence) {
+          await client.query(
+            'update tally_measurement_streams set sequence = $1, elapsed_ms = $2, intervals = $3::jsonb, actions = $4, first_action_ms = $5, last_action_ms = $6, state = $7, received_at = $8 where id = $9',
+            [e.sequence, e.elapsedMs, JSON.stringify(e.intervals), e.actions, e.firstActionMs, e.lastActionMs, e.state, now, e.streamId]);
+        }
+        await client.query('commit');
+        return { ok: true, sequence: Math.max(e.sequence, stored.sequence) };
+      } catch (err) {
+        await client.query('rollback').catch(() => {});
+        throw err;
+      } finally { client.release(); }
+    },
+
+    /** Every stored stream for one site (or all sites), oldest first. */
+    async measurementStreams(site) {
+      const rows = site
+        ? await q('select * from tally_measurement_streams where site = $1 order by started_at, id', [site])
+        : await q('select * from tally_measurement_streams order by started_at, id');
+      return rows.map((r) => ({ id: r.id, browserId: r.browser_id, persistent: r.persistent,
+        site: r.site, gameId: r.game_id, version: r.version, startedAt: Number(r.started_at),
+        sequence: r.sequence, elapsedMs: r.elapsed_ms, intervals: r.intervals, actions: r.actions,
+        firstActionMs: r.first_action_ms, lastActionMs: r.last_action_ms, state: r.state }));
     },
     async sites(sinceMs, untilMs = Infinity) {
       const u = Number.isFinite(untilMs) ? untilMs : 8.64e15;
@@ -93,7 +155,11 @@ export async function openPg(url) {
       const rows = await q(`select ts, day, site, name, vid, path, ref, props from tally_events where ${where.join(' and ')} order by id limit $${args.length}`, args);
       return rows.map((r) => ({ ...r, ts: Number(r.ts) }));
     },
-    async prune(beforeMs) { return (await pool.query('delete from tally_events where ts < $1', [beforeMs])).rowCount; },
+    async prune(beforeMs) {
+      const events = (await pool.query('delete from tally_events where ts < $1', [beforeMs])).rowCount;
+      const streams = (await pool.query('delete from tally_measurement_streams where received_at < $1', [beforeMs])).rowCount;
+      return events + streams;
+    },
     async close() { await pool.end(); },
   };
 }

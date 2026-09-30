@@ -33,6 +33,108 @@ Did they come back? The browser keeps two dates for your site in localStorage
 `days_since_first` and `new`, so day-1 and day-7 return rates work with no
 game code. Blocked storage means no `visit`, nothing else changes.
 
+## Qualified play: measure()
+
+The event log cannot tell you whether anyone actually played. `measure()` adds
+an opt-in play clock: call it when the page arrives, tell it when the game is
+playable, and feed it every accepted player action. It reports cumulative
+checkpoints to `POST /m` on the collector, which groups them into visits,
+qualifies them, and computes playtime and same-game retention. Nothing is sent
+for pages that never call `measure()`.
+
+```js
+// Anywhere on the page, before or after the tag. Works with a deferred tag:
+// early calls run before tally loads, later calls hit the real object.
+var measurement;
+function measured() {
+  return measurement || (window.tally && tally.measure &&
+    (measurement = tally.measure({ gameId: 'my-game', build: window.BUILD })));
+}
+
+measured();                                  // on page arrival, so non-starters count
+measured() && measured().resume();           // the game is playable
+measured() && measured().action(event);      // the game accepted a player action
+measured() && measured().pause();            // menu, explicit pause, results, spectator
+```
+
+The rules, which the numbers below depend on:
+
+- **`gameId`** is required, 1–64 characters of `a-z 0-9 -` starting with a
+  letter or digit. **`build`** is optional (`[\w.-]{1,64}`); omit it rather
+  than inventing one. One measured game per page: a second `measure()` with
+  the same `gameId` returns the same object, a different one throws.
+- **`action(event?)` only after the game accepts the move** — after local
+  validation, when an async server reply confirms it, or for a verified gamepad
+  transition. `action(event)` rejects untrusted DOM events and key repeats.
+  Never call it from a simulation tick, animation frame, menu, heartbeat, or
+  for an opponent's or bot's move. A held control counts once: report real
+  input changes, not loop iterations.
+- **`pause()` at every boundary where the game is not playable**: in-game
+  menus, explicit pause, results screens, spectator and abandoned states.
+  Focus, visibility and idle are built in: the clock also stops when the tab
+  is hidden or unfocused, and 60 seconds after the last accepted input.
+- Streams seal themselves after ten minutes, a five-second gap, or 128
+  intervals and a fresh one opens on the next accepted input. Reloads, sleeps
+  and throttled tabs cannot charge time nobody played; the server refuses
+  rewritten or backdated history.
+
+The dashboard shows a **Qualified play** table per game. Every column heading
+is a keyboard-reachable button that sorts (`aria-sort` follows). Null — a
+window not reached, no sample yet — renders as `—`, sorts last in either
+direction, and is always distinct from a real `0%`. Percentages carry their
+counts: `50% (1 of 2)`.
+
+Reading the numbers:
+
+- **Engaged visits** — settled visits that qualified: page visible and
+  focused, the game playable, 30+ covered seconds of active time, 2+ accepted
+  inputs at least 5 seconds apart. A visit is only judged once it has been
+  quiet for 32 minutes; before that it is **pending** and is never counted as
+  a zero.
+- **Avg / Median playtime · first visit** — over the settled qualified visits
+  (the "playtime sample" line under the table). Seven-day playtime is summed
+  per browser and clipped to the first 168 hours after their first accepted
+  input.
+- **Next-day returns** — of the browsers whose first qualified play is at
+  least 48h2m old, the share with a later same-game visit carrying input 24–48
+  hours after that first play. **Day-7 returns** — the same for 168–192 hours.
+  The extra two minutes is delivery grace for a last report in flight.
+- **Flags** (under the table): *temporary identity* visits had blocked storage
+  and never enter cohorts; *unconfirmed tail* visits ended without a closing
+  report and are shown but never charged as zeros.
+
+The same rows, machine-readable:
+
+```
+GET /admin/analytics/<token>/measurement.json?site=example.com&asOf=<epoch-ms>
+```
+
+or `tally.measurementStats(site?, asOf?)` in code. One row per game: browsers
+(measured / engaged), visits (eligible / qualified / pending), engagement
+rate, playtime mean and median with sample sizes, `d1` and `d7` with
+denominators and returns, and the flag counts. Omit `site` for every site;
+`asOf` re-answers the past.
+
+**Identity, and how it differs from the legacy analytics.** The event log
+stores no identifier: a visitor is a daily-salted hash of IP and user agent,
+useless tomorrow. Qualified play needs a stable key, so it stores one: a
+random UUID in `localStorage` (`tally_mid`), kept in the measurement table
+beside the aggregates. It is nothing but randomness, it never leaves your
+collector, and clearing site data makes the browser a stranger again. Blocked
+storage still measures, with a per-load id flagged temporary that never enters
+a cohort.
+
+**QA and bots.** Automated browsers are excluded like every other tally
+event: `navigator.webdriver` never loads the script, user agents that call
+themselves bots are dropped by the collector, `window.__TALLY_TEST__ = true`
+or `?tally_test=1` suppresses every measurement report, and `tally.ignore()`
+mutes both trackers. Point browser tests at an isolated collector or intercept
+`/m`; do not impersonate human traffic.
+
+Storage: measurement streams live next to the events — `measurement_streams`
+on SQLite, `tally_measurement_streams` on Postgres — and `retentionDays`
+prunes them by their last report on the same schedule as the events.
+
 ## The line for your prompt
 
 Building with Claude Code or another agent? Put this in the prompt, or in
@@ -228,6 +330,11 @@ the printed dashboard link right.
 ```
 npm start                      # or: fly launch, railway up
 ```
+
+Big-Head-Club's own collector runs on Railway at
+`https://tally-production-afae.up.railway.app`. Deploys there are manual:
+`railway link` the tally project, then `railway up` — pushing to this repo
+does not deploy the service.
 
 ## Tests
 

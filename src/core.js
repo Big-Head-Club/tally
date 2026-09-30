@@ -5,6 +5,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { visitorId, randomToken, dayIn, startOfDay, nextDay } from './hash.js';
 import { CLIENT_JS } from './client.js';
 import { dashboardHtml } from './dashboard.js';
+import { readCheckpoint, measurementStats as computeMeasurementStats } from './measurement.js';
 
 const NAME_RE = /^[a-z0-9_:.-]{1,64}$/i;
 const SITE_RE = /^[a-z0-9._-]{1,64}$/i;
@@ -170,6 +171,15 @@ export function createCore(opts) {
     return store.countByName(name, Date.now() - days * 86_400_000);
   }
 
+  /**
+   * Qualified-play measurement per game: engagement, playtime and same-game
+   * retention. `site` narrows one site; `asOf` (epoch ms) re-answers the past.
+   */
+  async function measurementStats(site = null, asOf = Date.now()) {
+    await ready;
+    return computeMeasurementStats(await store.measurementStreams(site), asOf);
+  }
+
   // ---- HTTP -----------------------------------------------------------------
 
   const CORS = {
@@ -211,6 +221,30 @@ export function createCore(opts) {
       return { status: 204, headers: CORS, body: '' };
     }
 
+    // One cumulative qualified-play checkpoint from the opt-in measure() hook.
+    // Bot UAs are dropped like any other tally traffic; everything else that
+    // fails validation or the stream contract gets a short reason.
+    if (path === '/m') {
+      if (req.method === 'OPTIONS') return { status: 204, headers: CORS, body: '' };
+      if (req.method !== 'POST') return { status: 405, headers: CORS, body: '' };
+      const text = await req.text(MAX_BODY);
+      if (text == null) return { status: 413, headers: CORS, body: '' };
+      const ua = req.header('user-agent') || '';
+      if (dropBots && (!ua || BOT_RE.test(ua))) return { status: 204, headers: CORS, body: '' };
+      let parsed;
+      try { parsed = JSON.parse(text); } catch { return { status: 400, headers: CORS, body: 'invalid_checkpoint\n' }; }
+      const e = readCheckpoint(parsed);
+      if (!e) return { status: 400, headers: CORS, body: 'invalid_checkpoint\n' };
+      if (allow && !allow.has(e.site)) return { status: 204, headers: CORS, body: '' };
+      if (ignore.has(e.site)) return { status: 204, headers: CORS, body: '' };
+      try { await store.measurement(e); } catch (err) {
+        if (err.status) return { status: err.status, headers: CORS, body: err.reason + '\n' };
+        console.error('tally: measurement failed', err);
+        return { status: 500, headers: CORS, body: '' };
+      }
+      return { status: 204, headers: CORS, body: '' };
+    }
+
     const m = path.match(/^\/admin\/analytics\/([^/]+)(?:\/([a-z.]+))?\/?$/);
     if (!m) return null;
     if (!tokenOk(m[1])) return { status: 404, headers: { 'content-type': 'text/plain' }, body: 'not found' };
@@ -230,6 +264,10 @@ export function createCore(opts) {
       const s = site || (await sites(days))[0]?.site;
       if (!s) return json(200, { site: null, empty: true });
       return json(200, await stats(s, days, dayRange(req)));
+    }
+    if (sub === 'measurement.json') {
+      const asOf = Number(req.query.get('asOf')) || Date.now();
+      return json(200, { generatedAt: Date.now(), asOf, games: await measurementStats(site || null, asOf) });
     }
     if (sub === 'stream') return { sse: { site: site || null } };
     if (sub === 'export.jsonl' || sub === 'export.csv') {
@@ -275,7 +313,7 @@ export function createCore(opts) {
     await store.close();
   }
 
-  return { handle, track, stats, sites, sitesBetween, countByName, engagedCountByName, engagedSites, visitorIdFor, events: emitter, ready, dashboardUrl, get token() { return token; }, tz, prefix, close };
+  return { handle, track, stats, sites, sitesBetween, countByName, engagedCountByName, engagedSites, measurementStats, visitorIdFor, events: emitter, ready, dashboardUrl, get token() { return token; }, tz, prefix, close };
 }
 
 function csvCell(v) {

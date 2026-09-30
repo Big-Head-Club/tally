@@ -15,6 +15,7 @@ a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
 .tile.live b{color:var(--ok)}
 table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}th{color:var(--dim);font-weight:500;font-size:11px}
 th:first-child,td:first-child{text-align:left}td.z{color:var(--line)}.wrap{overflow-x:auto}
+th button{background:none;border:0;color:inherit;font:inherit;font-size:11px;letter-spacing:0;padding:0;cursor:pointer}th button:hover{color:var(--acc)}
 .best{color:var(--acc);font-weight:600}.muted{color:var(--dim);font-size:12px}
 .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px}
 #ticker{font-size:12px;color:var(--dim);max-height:320px;overflow:auto}#ticker div{padding:2px 0;border-bottom:1px solid var(--line)}#ticker .n{color:var(--fg)}#ticker .new{color:var(--ok)}
@@ -37,7 +38,43 @@ function fmtT(ms){var d=new Date(ms);return d.toLocaleTimeString([],{hour12:fals
 function secs(s){if(s==null)return '—';s=Math.round(s);return s<60?s+'s':Math.floor(s/60)+'m '+(s%60)+'s'}
 function win(){return 'from='+$('#from').value+'&to='+$('#to').value}
 async function loadSites(){sites=await (await fetch(BASE+'/sites.json?'+win())).json();var sel=$('#site');sel.innerHTML=sites.map(function(s){return '<option value="'+esc(s.site)+'">'+esc(s.site)+' ('+n(s.visitors)+')</option>'}).join('');if(!site&&sites[0])site=sites[0].site;if(site&&!sites.some(function(s){return s.site===site}))sel.insertAdjacentHTML('afterbegin','<option value="'+esc(site)+'">'+esc(site)+' (0)</option>');sel.value=site;$('#sitewrap').style.display=sites.length>1?'':'none'}
-async function load(){await loadSites();S=await (await fetch(BASE+'/stats.json?site='+encodeURIComponent(site)+'&'+win())).json();history.replaceState(null,'','?site='+encodeURIComponent(site)+'&'+win());$('#csv').href=BASE+'/export.csv?site='+encodeURIComponent(site);$('#jsonl').href=BASE+'/export.jsonl?site='+encodeURIComponent(site);render();connect()}
+async function load(){await loadSites();var reqs=[fetch(BASE+'/stats.json?site='+encodeURIComponent(site)+'&'+win()),fetch(BASE+'/measurement.json?site='+encodeURIComponent(site))];var rs=await Promise.all(reqs);S=await rs[0].json();try{M=await rs[1].json()}catch(e){M=null}history.replaceState(null,'','?site='+encodeURIComponent(site)+'&'+win());$('#csv').href=BASE+'/export.csv?site='+encodeURIComponent(site);$('#jsonl').href=BASE+'/export.jsonl?site='+encodeURIComponent(site);render();connect()}
+var M=null,MS={k:'browsers',dir:-1};
+function pct(p,g){return p==null?'<span class="z">—</span>':Math.round(p*100)+'% ('+g[0]+' of '+g[1]+')'}
+function mins(v){return v==null?'<span class="z">—</span>':(Math.round(v*10)/10)+' min'}
+var MCOLS=[
+ {k:'game',label:'Game',get:function(g){return g.gameId},html:function(g){return '<a href="?site='+encodeURIComponent(g.site)+'">'+esc(g.gameId)+'</a>'}},
+ {k:'browsers',label:'Browsers',get:function(g){return g.measuredBrowsers},html:function(g){return n(g.measuredBrowsers)}},
+ {k:'engaged',label:'Engaged browsers',get:function(g){return g.engagedBrowsers},html:function(g){return n(g.engagedBrowsers)}},
+ {k:'rate',label:'Engaged visits',get:function(g){return g.engagementRate},html:function(g){return pct(g.engagementRate,[g.qualifiedVisits,g.eligibleVisits])}},
+ {k:'avg',label:'Avg playtime · first visit',get:function(g){return g.initialMeanMinutes},html:function(g){return mins(g.initialMeanMinutes)}},
+ {k:'med',label:'Median playtime · first visit',get:function(g){return g.initialMedianMinutes},html:function(g){return mins(g.initialMedianMinutes)}},
+ {k:'d1',label:'Next-day returns',get:function(g){return g.d1},html:function(g){return pct(g.d1,[g.d1Returns,g.d1Denominator])}},
+ {k:'d7',label:'Day-7 returns',get:function(g){return g.d7},html:function(g){return pct(g.d7,[g.d7Returns,g.d7Denominator])}},
+ {k:'pending',label:'Pending',get:function(g){return g.pendingVisits},html:function(g){return n(g.pendingVisits)}}
+];
+function measRows(){var gs=(M&&M.games)?M.games.slice():[];var c=MCOLS.find(function(c){return c.k===MS.k});gs.sort(function(a,b){var x=c.get(a),y=c.get(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;var d=x<y?-1:x>y?1:0;if(d===0&&c.k==='game')d=0;return d*MS.dir});return gs}
+function measSection(){
+  if(!M||!M.games||!M.games.length)return '';
+  var h='<h2>Qualified play</h2><p class="muted">Opt-in play measurement. Click a column heading to sort.</p><div class="wrap"><table id="meas"><thead><tr>';
+  MCOLS.forEach(function(c){var a='none';if(c.k===MS.k)a=MS.dir<0?'descending':'ascending';h+='<th'+(c.k===MS.k?' aria-sort="'+a+'"':'')+(c.k==='game'?'':' data-k="'+c.k+'"')+'>'+(c.k==='game'?'Game':'<button type="button" data-sk="'+c.k+'">'+esc(c.label)+'</button>')+'</th>'});
+  h+='</tr></thead><tbody id="measbody">';
+  measRows().forEach(function(g){h+='<tr>'+MCOLS.map(function(c){return '<td>'+c.html(g)+'</td>'}).join('')+'</tr>'});
+  h+='</tbody></table></div><p class="muted">';
+  M.games.forEach(function(g){
+    h+=esc(g.gameId)+' · playtime sample '+n(g.initialSample)+' settled visit'+(g.initialSample===1?'':'s')+' · playtime, first 7 days: avg '+mins(g.sevenDayMeanMinutes)+', median '+mins(g.sevenDayMedianMinutes)+' ('+n(g.sevenDaySample)+' browser'+(g.sevenDaySample===1?'':'s')+') · '+n(g.temporaryIdentityVisits)+' temporary identit'+(g.temporaryIdentityVisits===1?'y':'ies')+' · '+n(g.unconfirmedTailVisits)+' unconfirmed tail · <br>';
+  });
+  h+='</p><p class="muted">An engaged visit: the page visible and focused, the game playable, 30s+ of active time and 2+ accepted inputs at least 5s apart, judged 32 minutes after its last activity. Next-day = a return with input 24–48h after the first qualified play; day-7 = 168–192h after. <span class="z">—</span> = the window has not been reached; 0% is a real zero. Pending = visits still growing. Temporary identity = blocked storage. Unconfirmed tail = a stream left without a closing report. Browsers are a random id in localStorage, kept only in this table.</p>';
+  return h;
+}
+function sortMeas(k){
+  if(MS.k===k)MS.dir*=-1;else MS={k:k,dir:-1};
+  var head=$('#meas thead tr');
+  if(head)MCOLS.forEach(function(c,i){var th=head.children[i];if(!th)return;if(c.k===MS.k)th.setAttribute('aria-sort',MS.dir<0?'descending':'ascending');else th.removeAttribute('aria-sort')});
+  var body=$('#measbody');
+  if(body)body.innerHTML=measRows().map(function(g){return '<tr>'+MCOLS.map(function(c){return '<td>'+c.html(g)+'</td>'}).join('')+'</tr>'}).join('');
+}
+function bindMeas(){document.querySelectorAll('#meas th button').forEach(function(b){b.onclick=function(){sortMeas(b.getAttribute('data-sk'))}})}
 function render(){
   if(S.empty){$('#app').innerHTML='<p class="muted">No events yet. Add <code>&lt;script defer src="'+location.origin+'/t.js"&gt;&lt;/script&gt;</code> to a page and load it.</p>';return}
   var h='';
@@ -64,7 +101,9 @@ function render(){
     arms.forEach(function(a){h+='<tr><td>'+esc(a)+'</td>'+evs.map(function(e){var v=S.ab[k][a].events[e]||0;return '<td'+(v&&v===best[e]?' class="best"':'')+'>'+n(v)+'</td>'}).join('')+'</tr>'});
     h+='</table></div>';
   });
+  h+=measSection();
   $('#app').innerHTML=h;
+  bindMeas();
   $('#ticker').innerHTML=S.recent.map(line).join('')||'<div class="muted">no events yet</div>';
 }
 function span(){var f=S.from,t=S.to;return f===t?f:f+' to '+t}

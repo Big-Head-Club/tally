@@ -122,6 +122,159 @@ export const CLIENT_JS = `(function () {
   t.site = site;
   t.ignored = function () { return ignore; };
 
+  // Qualified play, opt-in: m = tally.measure({gameId:'my-game', build?}) on
+  // page load, m.resume() when playable, m.action(event?) only after the game
+  // accepts a real player action, m.pause() at menus, results and pauses. A
+  // visit counts while the page is visible, focused and had accepted input in
+  // the last minute; the collector groups and judges it.QA browsers (webdriver,
+  // __TALLY_TEST__, ?tally_test=1) and opted-out browsers are never measured.
+  var measurement = null;
+  function measure(o) {
+    o = o || {};
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(o.gameId || '')) throw new Error('tally.measure needs a gameId like "my-game"');
+    if (o.build != null && !/^[\\w.-]{1,64}$/.test(String(o.build))) throw new Error('tally.measure build is up to 64 of a-z 0-9 _ . -');
+    if (measurement) {
+      if (measurement.gameId !== o.gameId) throw new Error('tally.measure: one measured game per page');
+      return measurement;
+    }
+    var gameId = o.gameId, build = o.build != null && o.build !== '' ? String(o.build) : null;
+    var test = window.__TALLY_TEST__ === true || /[?&]tally_test=1/.test(qs);
+    var browserId = null, persistent = false;
+    try {
+      browserId = localStorage.getItem('tally_mid');
+      if (browserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(browserId)) {
+        persistent = true;
+      } else {
+        browserId = guid(); persistent = false;
+        localStorage.setItem('tally_mid', browserId);
+        persistent = localStorage.getItem('tally_mid') === browserId;
+      }
+    } catch (e) { browserId = browserId || guid(); persistent = false; }
+
+    var playable = false, active = false, lastAction = -Infinity, previous = nowMs();
+    var stream = null, opening = null, stopped = false, lastReport = previous;
+    var visible = function () { return document.visibilityState === 'visible' && document.hasFocus(); };
+    var epm = src.replace(/t\\.js(\\?.*)?$/, 'm');
+
+    function nowMs() { return window.performance && performance.now ? performance.now() : Date.now(); }
+    function payload(s, state) {
+      return { version: 1, streamId: s.id, browserId: browserId, persistent: persistent,
+        site: site, gameId: gameId, build: build, sequence: ++s.sequence,
+        elapsedMs: s.elapsed, intervals: s.intervals, actions: s.actions,
+        firstActionMs: s.firstAction, lastActionMs: s.lastAction, state: state };
+    }
+    function post(body, signal) {
+      return fetch(epm, { method: 'POST', mode: 'cors', keepalive: true,
+        headers: { 'content-type': 'text/plain' }, body: JSON.stringify(body), signal: signal });
+    }
+    function open() {
+      if (ignore || test || opening || stopped || stream) return;
+      var began = nowMs();
+      var s = { id: guid(), zero: began, elapsed: 0, sequence: 0, intervals: [], actions: 0, firstAction: null, lastAction: null, countedAt: null };
+      opening = s.id;
+      var controller = null, deadline = null;
+      if (typeof AbortController === 'function') {
+        controller = new AbortController();
+        deadline = setTimeout(function () { controller.abort(); if (opening === s.id) opening = null; }, 5000);
+      }
+      var body = payload(s, 'idle'); body.sequence = 0; body.elapsedMs = 0;
+      post(body, controller && controller.signal).then(function (r) {
+        if (!r || !r.ok || opening !== s.id || stopped) return;
+        // The monotonic clock starts only once the open is durable. Time spent
+        // offline or hung is never backfilled.
+        s.zero = nowMs(); stream = s; previous = s.zero; lastReport = s.zero;
+        if (playable && visible() && s.zero - lastAction <= 5000) acceptAction(s.zero);
+      }).catch(function () {}).then(function () { clearTimeout(deadline); if (opening === s.id) opening = null; });
+    }
+    function flush(state, beacon) {
+      var s = stream;
+      if (!s || ignore || test) return;
+      lastReport = nowMs();
+      var body = payload(s, state);
+      if (beacon) {
+        var text = JSON.stringify(body);
+        try { if (navigator.sendBeacon && navigator.sendBeacon(epm, new Blob([text], { type: 'text/plain' }))) return; } catch (e) {}
+      }
+      post(body).then(function (r) {
+        // A refused checkpoint invalidates the stream; a lost report stays queued server-side.
+        if (r && (r.status === 409 || r.status === 400) && stream === s) { stream = null; active = false; lastAction = -Infinity; }
+      }).catch(function () {});
+    }
+    function clock() {
+      var now = nowMs(), gap = now - previous;
+      if (stream && (gap > 5000 || now - stream.zero >= 600000 || stream.intervals.length >= 128)) {
+        // Seal at the last observed tick: a sleeping or throttled browser is not playing.
+        flush('closed', true); stream = null; active = false;
+        lastAction = -Infinity;
+      }
+      if (stream && active && gap >= 0 && gap <= 5000) {
+        var from = Math.max(0, Math.floor(previous - stream.zero));
+        var to = Math.max(from, Math.floor(Math.min(now, lastAction + 60000) - stream.zero));
+        if (to > from) {
+          var tail = stream.intervals[stream.intervals.length - 1];
+          if (tail && tail[1] === from) tail[1] = to;
+          else stream.intervals.push([from, to]);
+        }
+      }
+      if (stream) stream.elapsed = Math.max(0, Math.floor(now - stream.zero));
+      previous = now;
+      active = !!stream && playable && visible() && now < lastAction + 60000;
+      return now;
+    }
+    function acceptAction(now) {
+      if (stream) {
+        var at = Math.floor(now - stream.zero);
+        // Pointers can fire hundreds of times a second: buckets stay 100ms
+        // apart, but every accepted update renews the attention allowance.
+        if (stream.countedAt == null || at - stream.countedAt >= 100) { stream.actions++; stream.countedAt = at; }
+        stream.lastAction = at;
+        if (stream.firstAction === null) stream.firstAction = at;
+      }
+      lastAction = now;
+      active = !!stream && playable && visible();
+    }
+    measurement = {
+      gameId: gameId,
+      resume: function () { clock(); playable = true; active = !!stream && visible() && nowMs() < lastAction + 60000; open(); },
+      pause: function () { clock(); playable = false; active = false; flush('paused'); },
+      action: function (event) {
+        if (ignore || test || !playable || !visible() || (event && (!event.isTrusted || event.repeat))) return false;
+        var now = clock();
+        acceptAction(now); open();
+        return true;
+      },
+    };
+    if (ignore || test) return measurement;
+    open();
+    setInterval(function () {
+      clock();
+      if (active && nowMs() - lastReport >= 15000) flush('playing');
+      else if (!active && stream && lastReport < previous && stream.intervals.length && nowMs() - lastAction >= 60000 && nowMs() - lastReport >= 15000) flush('idle');
+      if (!stream && playable && visible() && nowMs() < lastAction + 60000) open();
+    }, 1000);
+    function visibility() {
+      clock(); active = !!stream && playable && visible() && nowMs() < lastAction + 60000;
+      flush(visible() ? (active ? 'playing' : 'idle') : 'hidden', !visible());
+    }
+    document.addEventListener('visibilitychange', visibility);
+    addEventListener('blur', visibility);
+    addEventListener('focus', visibility);
+    addEventListener('pagehide', function () { clock(); stopped = true; active = false; flush('closed', true); stream = null; });
+    addEventListener('pageshow', function () { stopped = false; previous = nowMs(); lastAction = -Infinity; open(); });
+    return measurement;
+  }
+  function guid() {
+    var b = new Uint8Array(16);
+    if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(b);
+    else for (var i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+    b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
+    var h = '', x;
+    for (i = 0; i < 16; i++) { x = (b[i] < 16 ? '0' : '') + b[i].toString(16); h += x; }
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
+  }
+  t.measure = measure;
+
+
   // Two tags on one page, one tracker. A second copy of this script adds its
   // endpoint to the first instead of replacing it. An older single-endpoint copy
   // that loaded first still gets the page's own tally() calls, forwarded.

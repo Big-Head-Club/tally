@@ -1,6 +1,6 @@
 ---
 name: tally
-description: Add self-hosted analytics to a web app or game with one script tag. Use when asked to add analytics, tracking, a visitor counter, event counts, or an A/B test, or when a prompt template says "add tally analytics".
+description: Add self-hosted analytics to a web app or game with one script tag. Use when asked to add analytics, tracking, a visitor counter, event counts, an A/B test, playtime or retention measurement, or when a prompt template says "add tally analytics".
 ---
 
 # Add tally analytics
@@ -81,6 +81,39 @@ about. Use these names so dashboards line up across games:
 - anything else the game does that is worth knowing
 
 Guard the calls: `window.tally && tally('win', { level })`.
+
+## 5b. Measure actual play (games)
+
+Event counts say what players clicked; `tally.measure()` says whether anyone
+actually played. Add it when asked for playtime, engagement, or retention:
+
+```js
+var measurement;
+function measured() {
+  return measurement || (window.tally && tally.measure &&
+    (measurement = tally.measure({ gameId: 'the-game-slug', build: window.BUILD })));
+}
+measured();                              // on page arrival
+measured() && measured().resume();       // when the game is playable
+measured() && measured().action(event);  // only after the game accepts a player action
+measured() && measured().pause();        // menus, pause, results, spectator
+```
+
+Rules the collector depends on:
+
+- `gameId` is the canonical slug, `a-z 0-9 -`. Reuse the site or game name;
+  do not invent a per-deployment id.
+- `action()` after acceptance, never from a tick or animation frame; never for
+  bots, opponents or replays; `event` is optional but must be a trusted,
+  non-repeating DOM event when passed.
+- `pause()` at every non-playable state; do not try to detect focus or idle
+  yourself, the script does that.
+- One `measure()` per page. Wrap in the guard above so a missing or old
+  collector script never breaks the game.
+
+Read `README.md` ("Qualified play") before inventing new semantics; the
+dashboard's Qualified play table explains itself. QA browsers (`webdriver`,
+`?tally_test=1`, `__TALLY_TEST__`) are never measured.
 
 Only add an A/B test if asked. `const arm = tally.variant('key', ['a','b'])`
 picks and remembers an arm; the dashboard shows a per-arm table.

@@ -56,7 +56,7 @@ export function openSqlite(file) {
   const setMeta = q('insert into meta (k, v) values (?, ?) on conflict(k) do update set v = excluded.v');
   const openStream = q(`insert into measurement_streams
     (id, browser_id, persistent, site, game_id, version, build, started_at, received_at)
-    values (?,?,?,?,?,1,?,?,?)`);
+    values (?,?,?,?,?,1,?,?,?) on conflict(id) do nothing`);
   const getStream = q(`select id, browser_id, persistent, site, game_id, build, started_at, sequence,
     elapsed_ms, intervals, actions, first_action_ms, last_action_ms, state from measurement_streams where id = ?`);
   const saveStream = q(`update measurement_streams set sequence = ?, elapsed_ms = ?, intervals = ?,

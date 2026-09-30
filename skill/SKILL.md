@@ -87,17 +87,11 @@ Guard the calls: `window.tally && tally('win', { level })`.
 Event counts say what players clicked; `tally.measure()` says whether anyone
 actually played. Add it when asked for playtime, engagement, or retention:
 
-```js
-var measurement;
-function measured() {
-  return measurement || (window.tally && tally.measure &&
-    (measurement = tally.measure({ gameId: 'the-game-slug', build: window.BUILD })));
-}
-measured();                              // on page arrival
-measured() && measured().resume();       // when the game is playable
-measured() && measured().action(event);  // only after the game accepts a player action
-measured() && measured().pause();        // menus, pause, results, spectator
-```
+Use the complete late-SDK-safe example in README's **Qualified play** section.
+Give the tag an ID, register a one-shot script `load` listener, and also try
+initialization immediately. Save playable state until the SDK becomes
+available and replay it when acquiring the measurement handle. Arrival must
+be recorded even if the player never starts.
 
 Rules the collector depends on:
 
@@ -106,14 +100,22 @@ Rules the collector depends on:
 - `action()` after acceptance, never from a tick or animation frame; never for
   bots, opponents or replays; `event` is optional but must be a trusted,
   non-repeating DOM event when passed.
+- A successful HTTP response can represent a rejected move. For async actions,
+  require the game's explicit acceptance flag or nonempty applied-move list.
 - `pause()` at every non-playable state; do not try to detect focus or idle
   yourself, the script does that.
-- One `measure()` per page. Wrap in the guard above so a missing or old
+- Resume on playable entry and restart; pause on every non-playable boundary.
+- One `measure()` per page. Guard the call so a missing or old
   collector script never breaks the game.
 
 Read `README.md` ("Qualified play") before inventing new semantics; the
-dashboard's Qualified play table explains itself. QA browsers (`webdriver`,
-`?tally_test=1`, `__TALLY_TEST__`) are never measured.
+dashboard's collapsible sections show qualified play, same-game returns and
+status flags, with sortable columns, minutes and browser samples. Detailed
+definitions are at the bottom. QA browsers (`webdriver`, `?tally_test=1`,
+`__TALLY_TEST__`) are never measured; intercept `/m` as well during browser QA.
+Set test flags before the SDK loads. Verify both immediate and delayed SDK
+loading, rejected moves, restart and non-playable states against an isolated
+collector. Do not send synthetic gameplay to production.
 
 Only add an A/B test if asked. `const arm = tally.variant('key', ['a','b'])`
 picks and remembers an arm; the dashboard shows a per-arm table.

@@ -38,6 +38,14 @@ test('measurement: open, cumulative progress, duplicate and reordered reports', 
   const seed = new DatabaseSync(join(dir, 'm.sqlite'));
   const e = open();
   assert.equal((await t.post(e)).status, 204);
+  const stored = () => seed.prepare('select * from measurement_streams where id = ?').get(e.streamId);
+  const anchor = stored();
+  assert.equal((await t.post(e)).status, 204);
+  assert.deepEqual(stored(), anchor);
+  const rebound = await t.post({ ...e, browserId: randomUUID() });
+  assert.equal(rebound.status, 409);
+  assert.match(await rebound.text(), /stream_binding/);
+  assert.deepEqual(stored(), anchor);
   // The client only ever reports what its own clock has seen, so give the
   // stream a realistic 45 seconds of wall age before the bigger checkpoints.
   seed.prepare('update measurement_streams set started_at = ? where id = ?').run(Date.now() - 45_000, e.streamId);
@@ -46,6 +54,9 @@ test('measurement: open, cumulative progress, duplicate and reordered reports', 
   // Lost, duplicated and reordered reports all converge on the newest.
   const [a, b, c] = await Promise.all([t.post(latest), t.post(first), t.post(latest)]);
   assert.equal(a.status, 204); assert.equal(b.status, 204); assert.equal(c.status, 204);
+  const progressed = stored();
+  assert.equal((await t.post(e)).status, 204);
+  assert.deepEqual(stored(), progressed);       // a replayed open cannot reset the clock or progress
   const s = await t.tally.measurementStats('g.test');
   assert.equal(s.length, 1);                    // one pending visit, judged but not counted
   assert.equal(s[0].eligibleVisits, 0);

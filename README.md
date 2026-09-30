@@ -24,9 +24,9 @@ tally('level_complete', { level: 3 });          // any custom event
 const arm = tally.variant('cta', ['a', 'b']);   // sticky A/B arm, reported on every later event
 ```
 
-No cookies. IP addresses are hashed with a daily salt and never stored, so a
-visitor is one person for one day and a stranger the next. No consent banner
-needed in most places, and nothing leaves your server.
+No cookies. Legacy events use a daily-salted hash of IP and user agent; raw
+IP addresses are not stored. These counts cannot identify people across days.
+Optional qualified-play measurement uses a separate persistent browser ID.
 
 Did they come back? The browser keeps two dates for your site in localStorage
 (first visit, last visit) and no ID. Once a day it sends a `visit` event with
@@ -42,20 +42,45 @@ checkpoints to `POST /m` on the collector, which groups them into visits,
 qualifies them, and computes playtime and same-game retention. Nothing is sent
 for pages that never call `measure()`.
 
+Give the existing script tag an ID, then install these hooks during page
+initialization. The load listener handles a deferred SDK; the saved playable
+state is applied when it arrives.
+
+```html
+<script id="tally-sdk" defer src="/t.js"></script>
+```
+
 ```js
-// Anywhere on the page, before or after the tag. Works with a deferred tag:
-// early calls run before tally loads, later calls hit the real object.
-var measurement;
+let measurement;
+let playable = false;
+
 function measured() {
-  return measurement || (window.tally && tally.measure &&
-    (measurement = tally.measure({ gameId: 'my-game', build: window.BUILD })));
+  if (!measurement && window.tally?.measure) {
+    measurement = window.tally.measure({ gameId: 'my-game', build: window.BUILD });
+    if (playable) measurement.resume();
+  }
+  return measurement;
 }
 
-measured();                                  // on page arrival, so non-starters count
-measured() && measured().resume();           // the game is playable
-measured() && measured().action(event);      // the game accepted a player action
-measured() && measured().pause();            // menu, explicit pause, results, spectator
+document.getElementById('tally-sdk').addEventListener('load', measured, { once: true });
+measured(); // Record arrival even when the player never starts.
+
+function setPlayable(value) {
+  playable = value;
+  const m = measured();
+  if (m) value ? m.resume() : m.pause();
+}
+
+function acceptedAction(event) {
+  measured()?.action(event);
+}
 ```
+
+Call `setPlayable(true)` on playable entry and restart, `setPlayable(false)`
+for menus, pause, results and spectating, and `acceptedAction(event)` only
+after the game accepts a local input. For async moves, wait for an explicit
+acceptance result: HTTP 200 alone does not establish that a move happened.
+Use the collector's full script URL for a separately hosted collector.
 
 The rules, which the numbers below depend on:
 
@@ -78,8 +103,11 @@ The rules, which the numbers below depend on:
   and throttled tabs cannot charge time nobody played; the server refuses
   rewritten or backdated history.
 
-The dashboard shows a **Qualified play** table per game. Every column heading
-is a keyboard-reachable button that sorts (`aria-sort` follows). Null — a
+The dashboard groups **Qualified play**, **Same-game returns**, and
+**Measurement status** into collapsible sections. Only Qualified play starts
+expanded. Every table, including the legacy event tables, sorts from
+keyboard-reachable column buttons (`aria-sort` follows). Sort direction and
+expanded sections survive automatic refreshes. Null — a
 window not reached, no sample yet — renders as `—`, sorts last in either
 direction, and is always distinct from a real `0%`. Percentages carry their
 counts: `50% (1 of 2)`.
@@ -91,17 +119,22 @@ Reading the numbers:
   inputs at least 5 seconds apart. A visit is only judged once it has been
   quiet for 32 minutes; before that it is **pending** and is never counted as
   a zero.
-- **Avg / Median playtime · first visit** — over the settled qualified visits
-  (the "playtime sample" line under the table). Seven-day playtime is summed
-  per browser and clipped to the first 168 hours after their first accepted
-  input.
+- **Avg / Median playtime · first visit** — each persistent browser's first
+  settled qualified visit, with its browser sample beside the minutes.
+  Seven-day playtime includes repeat runs and later visits, clipped to the
+  first 168 hours after first qualified play; overlapping tabs count once.
 - **Next-day returns** — of the browsers whose first qualified play is at
   least 48h2m old, the share with a later same-game visit carrying input 24–48
   hours after that first play. **Day-7 returns** — the same for 168–192 hours.
   The extra two minutes is delivery grace for a last report in flight.
-- **Flags** (under the table): *temporary identity* visits had blocked storage
+- **Measurement status**: *temporary identity* visits had blocked storage
   and never enter cohorts; *unconfirmed tail* visits ended without a closing
-  report and are shown but never charged as zeros.
+  report. Time is a lower bound; a missing closing report does not invent a
+  duration or a zero-length visit.
+
+Measurement uses all retained streams for the selected site; the date picker
+filters legacy events. Definitions and cohort windows are at the bottom of
+the dashboard. Games without reports are absent, not listed as measured zero.
 
 The same rows, machine-readable:
 
@@ -113,14 +146,16 @@ or `tally.measurementStats(site?, asOf?)` in code. One row per game: browsers
 (measured / engaged), visits (eligible / qualified / pending), engagement
 rate, playtime mean and median with sample sizes, `d1` and `d7` with
 denominators and returns, and the flag counts. Omit `site` for every site;
-`asOf` re-answers the past.
+`asOf` sets the time used to evaluate cohort maturity; it is not a historical
+snapshot of checkpoints that have since been updated or pruned.
 
-**Identity, and how it differs from the legacy analytics.** The event log
-stores no identifier: a visitor is a daily-salted hash of IP and user agent,
-useless tomorrow. Qualified play needs a stable key, so it stores one: a
+**Identity, and how it differs from the legacy analytics.** Legacy events
+store a daily-salted hash of IP and user agent. Qualified play uses a
+separate stable key: a
 random UUID in `localStorage` (`tally_mid`), kept in the measurement table
-beside the aggregates. It is nothing but randomness, it never leaves your
-collector, and clearing site data makes the browser a stranger again. Blocked
+beside its measurement streams. It is sent to the configured collectors;
+clearing site data creates a new identity. It identifies a browser storage
+context, not a verified person or a cross-device account. Blocked
 storage still measures, with a per-load id flagged temporary that never enters
 a cohort.
 
@@ -134,6 +169,9 @@ mutes both trackers. Point browser tests at an isolated collector or intercept
 Storage: measurement streams live next to the events — `measurement_streams`
 on SQLite, `tally_measurement_streams` on Postgres — and `retentionDays`
 prunes them by their last report on the same schedule as the events.
+Keep the default `0` (no pruning), or at least nine days to observe a full D7
+window. Cohorts begin at the first qualified visit still present in retained
+data; pruning can remove earlier history.
 
 ## The line for your prompt
 
@@ -277,7 +315,7 @@ createTally({
   sites: undefined,       // allowlist; default accepts any site name
   ignoreSites: ['localhost', '127.0.0.1', '0.0.0.0', '::1'], // dropped, so local dev never counts
   prefix: '',             // mount routes under a path, e.g. '/_t'
-  retentionDays: 0,       // delete raw events older than this; 0 keeps forever
+  retentionDays: 0,       // prune old events and measurement streams; 0 keeps forever
   trustProxy: true,       // read the client IP from Fly/Railway/Cloudflare headers
 });
 ```
@@ -331,10 +369,12 @@ the printed dashboard link right.
 npm start                      # or: fly launch, railway up
 ```
 
-Big-Head-Club's own collector runs on Railway at
-`https://tally-production-afae.up.railway.app`. Deploys there are manual:
-`railway link` the tally project, then `railway up` — pushing to this repo
-does not deploy the service.
+Big-Head-Club's collector runs at
+`https://tally-production-afae.up.railway.app`. Its Railway service is connected
+to `Big-Head-Club/tally`, branch `main`: pushes automatically build the tracked
+Dockerfile and deploy the collector. The existing `/data` volume preserves
+SQLite data and the dashboard token. Check the Railway deployment's commit
+and `/health` after a release.
 
 ## Tests
 
@@ -361,10 +401,11 @@ to Postgres. Or keep the app stateless and run tally standalone.
 **Will it slow the page?** The script is about 5 KB, loads deferred, and sends
 with `sendBeacon`. If the server is down the page does not care.
 
-**GDPR?** No cookies, no stored IPs, no ID. The only thing kept in the
-browser for returns is two dates (first and last visit to this site). Read
-your own rules; this is what Plausible and Fathom argue puts them outside
-consent requirements.
+**What identifiers are stored?** Legacy events use daily-salted visitor
+hashes and keep first/last-visit dates in the browser. Opt-in `measure()` also
+stores an origin-local UUID and sends it with measurement streams. No cookies
+or raw IP addresses are stored. The qualified-play identity is separate from
+the legacy visitor hash.
 
 **Node 22 prints an "SQLite is experimental" warning.** Start Node with
 `--disable-warning=ExperimentalWarning`. Node 24 does not warn.

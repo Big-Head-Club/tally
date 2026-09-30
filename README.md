@@ -213,7 +213,7 @@ import { createTally } from 'tally';
 
 const tally = createTally();                       // SQLite at ./data/tally.sqlite (or $TALLY_DIR)
 http.createServer(async (req, res) => {
-  if (await tally.handler(req, res)) return;       // /t.js, /i, /admin/analytics/<token>
+  if (await tally.handler(req, res)) return;       // /t.js, /i, /m, /admin/analytics/<token>
   // ...your routes
 }).listen(3000);
 await tally.ready;
@@ -293,7 +293,7 @@ seconds of downtime on deploy.
 npm install pg
 ```
 
-Set `DATABASE_URL`. tally creates its two tables on first start. To get a free
+Set `DATABASE_URL`. tally creates its tables on first start. To get a free
 Neon database from the command line:
 
 ```
@@ -398,8 +398,8 @@ counted. That is true of every tool.
 **Two machines?** SQLite is one file on one machine. If you scale out, switch
 to Postgres. Or keep the app stateless and run tally standalone.
 
-**Will it slow the page?** The script is about 5 KB, loads deferred, and sends
-with `sendBeacon`. If the server is down the page does not care.
+**Will it slow the page?** The script loads deferred. Measurement checkpoints
+use background fetch or `sendBeacon`; a collector outage does not block play.
 
 **What identifiers are stored?** Legacy events use daily-salted visitor
 hashes and keep first/last-visit dates in the browser. Opt-in `measure()` also

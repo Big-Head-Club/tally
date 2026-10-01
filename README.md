@@ -82,6 +82,13 @@ after the game accepts a local input. For async moves, wait for an explicit
 acceptance result: HTTP 200 alone does not establish that a move happened.
 Use the collector's full script URL for a separately hosted collector.
 
+With multiple SDK tags, legacy events fan out to the registered event collectors.
+Qualified measurement uses the **first measurement-capable SDK's collector**;
+later tags preserve that stream. If a 0.7 tracker loaded first, a newer tag adds
+`measure()` using the newer tag's collector. Load the intended measurement
+collector first. SDK 0.8.1 detects duplicate tags before installing automatic
+event listeners, preventing duplicate clicks and leave reports.
+
 The rules, which the numbers below depend on:
 
 - **`gameId`** is required, 1–64 characters of `a-z 0-9 -` starting with a
@@ -153,7 +160,7 @@ snapshot of checkpoints that have since been updated or pruned.
 store a daily-salted hash of IP and user agent. Qualified play uses a
 separate stable key: a
 random UUID in `localStorage` (`tally_mid`), kept in the measurement table
-beside its measurement streams. It is sent to the configured collectors;
+beside its measurement streams. It is sent to the measurement collector;
 clearing site data creates a new identity. It identifies a browser storage
 context, not a verified person or a cross-device account. Blocked
 storage still measures, with a per-load id flagged temporary that never enters

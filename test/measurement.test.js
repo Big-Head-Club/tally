@@ -32,6 +32,16 @@ const open = (over = {}) => ({ version: 1, streamId: randomUUID(), browserId: ra
   site: 'g.test', gameId: 'demo', build: null, sequence: 0, elapsedMs: 0, intervals: [], actions: 0,
   firstActionMs: null, lastActionMs: null, state: 'idle', ...over });
 
+test('measurement: distinct browser IDs sharing an IP and user agent remain distinct', async (ctx) => {
+  const t = await boot();
+  ctx.after(t.close);
+  const first = open(), second = open();
+  for (const e of [first, second, { ...first, streamId: randomUUID() }]) assert.equal((await t.post(e)).status, 204);
+  const [stats] = await t.tally.measurementStats('g.test');
+  assert.equal(stats.measuredBrowsers, 2);
+  assert.equal(stats.pendingVisits, 2);
+});
+
 test('measurement: open, cumulative progress, duplicate and reordered reports', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'tally-m-'));
   const t = await boot({ file: join(dir, 'm.sqlite') });

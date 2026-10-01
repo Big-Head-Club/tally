@@ -19,7 +19,7 @@ function fakeWindow(src) {
   };
   win.window = win;
   win.document = { currentScript: { src, getAttribute: () => null }, referrer: '', visibilityState: 'visible', addEventListener: win.addEventListener, querySelector: () => null };
-  return { win, sent };
+  return { win, sent, listeners };
 }
 
 function run(win, DateImpl = Date) {
@@ -80,6 +80,22 @@ test('an older single-endpoint tally that loaded first still receives tally() ca
   win.window.tally.flush();
   assert.deepEqual(got, ['win']);
   assert.equal(sent[0].url, 'https://hub.test/i');
+});
+
+test('duplicate tags install automatic tracking listeners only once', () => {
+  const { win, sent, listeners } = fakeWindow('https://a.test/t.js');
+  run(win);
+  const counts = Object.fromEntries(Object.entries(listeners).map(([name, fns]) => [name, fns.length]));
+  win.document.currentScript = { src: 'https://hub.test/t.js', getAttribute: () => null };
+  run(win);
+  assert.deepEqual(Object.fromEntries(Object.entries(listeners).map(([name, fns]) => [name, fns.length])), counts);
+  for (const fn of listeners.click) fn({ target: { closest: () => ({ getAttribute: () => null, innerText: 'Play' }) } });
+  for (const fn of listeners.pagehide) fn({});
+  for (const url of ['https://a.test/i', 'https://hub.test/i']) {
+    const events = sent.filter((s) => s.url === url).flatMap((s) => JSON.parse(s.blob.text));
+    assert.equal(events.filter((e) => e.n === 'click').length, 1);
+    assert.equal(events.filter((e) => e.n === 'leave').length, 1);
+  }
 });
 
 test('an automated browser sends nothing', () => {

@@ -8,12 +8,12 @@ import { runInNewContext } from 'node:vm';
 import { webcrypto } from 'node:crypto';
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-function browser({ storage = new Map(), search = '', webdriver = false, qa = false, storageBlocked = false, clockDrift = 0, hangOpen = false } = {}) {
+function browser({ storage = new Map(), search = '', webdriver = false, qa = false, storageBlocked = false, clockDrift = 0, hangOpen = false, previous } = {}) {
   let now = 0, focused = true, serial = 0;
   const requests = [], timers = new Map(), listeners = new Map();
   const on = (name, fn) => listeners.set(name, [...listeners.get(name) || [], fn]);
   const context = {
-    __TALLY_TEST__: qa, crypto: webcrypto, URL, URLSearchParams, Blob, AbortController, Uint8Array,
+    tally: previous, __TALLY_TEST__: qa, crypto: webcrypto, URL, URLSearchParams, Blob, AbortController, Uint8Array,
     performance: { now: () => (now += clockDrift) },
     location: { hostname: 'game.test', search, pathname: '/' }, history: {},
     localStorage: {
@@ -61,6 +61,27 @@ function browser({ storage = new Map(), search = '', webdriver = false, qa = fal
 }
 
 const total = (p) => p.intervals.reduce((n, [a, b]) => n + b - a, 0);
+
+test('a measurement-capable tag upgrades an older multi-endpoint tracker and respects its opt-out', async () => {
+  let ignored = false;
+  const endpoints = [];
+  const previous = Object.assign(() => {}, { __tally: 1, __add: (ep) => endpoints.push(ep),
+    ignored: () => ignored, ignore: (on) => { ignored = on !== false; } });
+  const b = browser({ previous });
+  assert.equal(b.tally, previous);
+  assert.deepEqual(endpoints, ['https://hub.test/i']);
+  assert.equal(typeof b.tally.measure, 'function');
+  const m = b.tally.measure({ gameId: 'sample' });
+  await settle();
+  m.resume(); m.action(); b.advance(5000); m.action(); b.advance(30000); m.pause();
+  assert.ok(total(b.checkpoints().at(-1)) >= 30000);
+  b.tally.ignore();
+  const n = b.checkpoints().length;
+  m.resume();
+  assert.equal(m.action(), false);
+  b.advance(30000); m.pause();
+  assert.equal(b.checkpoints().length, n);
+});
 
 test('measurement is opt-in; pageviews and legacy events accrue nothing', async () => {
   const b = browser();

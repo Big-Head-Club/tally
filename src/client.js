@@ -8,7 +8,7 @@ export const CLIENT_JS = `(function () {
   if (!src) return;
   var ep = src.replace(/t\\.js(\\?.*)?$/, 'i'), eps = [ep];
   var site = (sc.getAttribute('data-site') || location.hostname).toLowerCase();
-  var ignore = false, ab = {}, q = [], timer = null, seen = {};
+  var ignore = false, ab = {}, q = [], timer = null, seen = {}, measurement = null;
   var qs = location.search;
   try {
     if (/[?&]tally=ignore/.test(qs)) localStorage.setItem('tally_ignore', '1');
@@ -16,6 +16,15 @@ export const CLIENT_JS = `(function () {
     ignore = localStorage.getItem('tally_ignore') === '1';
     ab = JSON.parse(localStorage.getItem('tally_ab') || '{}') || {};
   } catch (e) {}
+
+  // Reuse the tracker before installing listeners. A pre-measurement SDK can
+  // keep its event queue while this collector supplies the newer opt-in API.
+  var prev = window.tally;
+  if (prev && prev.__tally && prev.__add) {
+    prev.__add(ep);
+    if (!prev.measure) prev.measure = measure;
+    return;
+  }
 
   function send() {
     if (!q.length) return;
@@ -128,7 +137,6 @@ export const CLIENT_JS = `(function () {
   // visit counts while the page is visible, focused and had accepted input in
   // the last minute; the collector groups and judges it.QA browsers (webdriver,
   // __TALLY_TEST__, ?tally_test=1) and opted-out browsers are never measured.
-  var measurement = null;
   function measure(o) {
     o = o || {};
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(o.gameId || '')) throw new Error('tally.measure needs a gameId like "my-game"');
@@ -156,6 +164,7 @@ export const CLIENT_JS = `(function () {
     var visible = function () { return document.visibilityState === 'visible' && document.hasFocus(); };
     var epm = src.replace(/t\\.js(\\?.*)?$/, 'm');
 
+    function isIgnored() { return prev && prev.__tally && prev.ignored ? prev.ignored() : ignore; }
     function nowMs() { return window.performance && performance.now ? performance.now() : Date.now(); }
     function payload(s, state) {
       return { version: 1, streamId: s.id, browserId: browserId, persistent: persistent,
@@ -168,7 +177,7 @@ export const CLIENT_JS = `(function () {
         headers: { 'content-type': 'text/plain' }, body: JSON.stringify(body), signal: signal });
     }
     function open() {
-      if (ignore || test || opening || stopped || stream) return;
+      if (isIgnored() || test || opening || stopped || stream) return;
       var began = nowMs();
       var s = { id: guid(), zero: began, elapsed: 0, sequence: 0, intervals: [], actions: 0, firstAction: null, lastAction: null, countedAt: null };
       opening = s.id;
@@ -188,7 +197,7 @@ export const CLIENT_JS = `(function () {
     }
     function flush(state, beacon) {
       var s = stream;
-      if (!s || ignore || test) return;
+      if (!s || isIgnored() || test) return;
       lastReport = nowMs();
       var body = payload(s, state);
       if (beacon) {
@@ -238,13 +247,13 @@ export const CLIENT_JS = `(function () {
       resume: function () { clock(); playable = true; active = !!stream && visible() && nowMs() < lastAction + 60000; open(); },
       pause: function () { clock(); playable = false; active = false; flush('paused'); },
       action: function (event) {
-        if (ignore || test || !playable || !visible() || (event && (!event.isTrusted || event.repeat))) return false;
+        if (isIgnored() || test || !playable || !visible() || (event && (!event.isTrusted || event.repeat))) return false;
         var now = clock();
         acceptAction(now); open();
         return true;
       },
     };
-    if (ignore || test) return measurement;
+    if (isIgnored() || test) return measurement;
     open();
     setInterval(function () {
       clock();
@@ -275,11 +284,7 @@ export const CLIENT_JS = `(function () {
   t.measure = measure;
 
 
-  // Two tags on one page, one tracker. A second copy of this script adds its
-  // endpoint to the first instead of replacing it. An older single-endpoint copy
-  // that loaded first still gets the page's own tally() calls, forwarded.
-  var prev = window.tally;
-  if (prev && prev.__tally && prev.__add) { prev.__add(ep); return; }
+  // Older single-endpoint copies still receive explicit tally() calls.
   var prevFn = typeof prev === 'function' && !prev.q ? prev : null;
   var pub = function (name, props) {
     t(name, props);
